@@ -34,7 +34,7 @@ class HumanDetector:
             # 参照画像の設定
             "sample_img_dir": "./humanA",
             "sample_x_margin": 0.1,
-            "sample_y_top": 0.15,
+            "sample_y_top": 0.1,
             "sample_y_bottom": 0.85,
             # OSNETの設定
             "reid_model": "osnet_x0_25",
