@@ -2,6 +2,7 @@ import os
 import time
 import glob
 from types import SimpleNamespace
+import yaml
 
 import cv2
 import numpy as np
@@ -17,48 +18,13 @@ MARGIN = 2
 
 
 class HumanDetector:
-    def __init__(self):
-        config = {
-            "webcam_index": 0,
-            "model_pt": "yolo11s.pt",
-            "pred_thres": 0.5,
-            "frame_width": 640,
-            "frame_height": 480,
-            "fps": 30,
-            "window_name": "YOLOv11 + OSNET",
-            # 描画色の設定
-            "person_color": (255, 0, 0),
-            "maybe_target_color": (0, 165, 255),
-            "confirmed_target_color": (0, 200, 0),
-            "text_color": (255, 255, 255),
-            # 参照画像の設定
-            "sample_img_dir": "./humanA",
-            "sample_x_margin": 0.1,
-            "sample_y_top": 0.15,
-            "sample_y_bottom": 0.85,
-            # OSNETの設定
-            "reid_model": "osnet_x0_25",
-            "sim_thresh": 0.60,
-            "target_confirm_frames": 5,
-            "match_iou_thresh": 0.8,
-            # 検出ボックスの最小サイズ
-            "min_box_w": 80,
-            "min_box_h": 160,
-            "min_box_area": 15000,
-            # クロップ率（推論側）
-            "crop_x_margin": 0.1,
-            "crop_y_top": 0.15,
-            "crop_y_bottom": 0.85,
-            # デバッグ用設定
-            "debug_dir": "./debug_out",
-            "debug_save_gallery_crops": True,
-            "debug_save_detect_crops": False,  # MAYBE/MATCH時のみ保存
-            "debug_print_detection_logs": False,
-            # トラック保持フレーム数
-            "max_track_age": 30,
-            # モデル構造出力
-            "print_model_info": False,
-        }
+    def __init__(self, config_path: str = "config.yaml"):
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+
+        for key in ("person_color", "maybe_target_color", "confirmed_target_color", "text_color"):
+            config[key] = tuple(config[key])
+
         self.conf = SimpleNamespace(**config)
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -282,7 +248,7 @@ class HumanDetector:
                     }
                 )
 
-        # 追加：クロップ画像（服領域）を別ウィンドウで表示
+        # クロップ画像（服領域）を別ウィンドウで表示
         self._show_crops(crops)     
         print(crops[0].shape if crops else "No crops to show")
 
@@ -449,47 +415,62 @@ class HumanDetector:
         return frame, center_x, class_name
 
 if __name__ == "__main__":
-    model = HumanDetector()
-    sensor = ClsImageViewerUDP()  # cv2.VideoCapture(0) の代わり
+    conf_path = "./config/config.yaml"
+    model = HumanDetector(config_path=conf_path)
 
-    while True:
-        sensor.receive_one_set()          # UDPから1セット分(B/G/R含む)受信
-        frame = sensor.get_bgr_image()    # BGR画像(120×160×3, uint8)を取得
+    INPUT_SOURCE = model.conf.input_source
+    VIDEO_PATH   = model.conf.video_path
+    CAMERA_INDEX = model.conf.camera_index
 
-        if frame is None:
-            print("画像を取得できませんでした。終了します。")
-            break
+    if INPUT_SOURCE == "udp":
+        sensor = ClsImageViewerUDP()
+        def get_frame():
+            sensor.receive_one_set()
+            frame = sensor.get_bgr_image()
+            if frame is None:
+                return False, None
+            frame = cv2.resize(frame, (model.conf.frame_width, model.conf.frame_height))
+            return True, frame
 
-        # YOLO/OSNetが想定する解像度に合わせてリサイズ
-        frame = cv2.resize(
-            frame, (model.conf.frame_width, model.conf.frame_height)
-        )
+    elif INPUT_SOURCE == "camera":
+        cap = cv2.VideoCapture(CAMERA_INDEX)
+        if not cap.isOpened():
+            raise RuntimeError(f"カメラ(index={CAMERA_INDEX})を開けませんでした。")
+        def get_frame():
+            ret, frame = cap.read()
+            if not ret:
+                return False, None
+            frame = cv2.resize(frame, (model.conf.frame_width, model.conf.frame_height))
+            return True, frame
 
-        out_frame, cx, cname = model.process_frame(frame)
-        print(f"中心座標: {cx}, クラス: {cname}")
-        cv2.imshow("Human ReID Detector", out_frame)
-        if cx is not None:
-            print(f"MATCH center_x={cx:.1f}, class={cname}")
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
+    elif INPUT_SOURCE == "video":
+        cap = cv2.VideoCapture(VIDEO_PATH)
+        if not cap.isOpened():
+            raise RuntimeError(f"動画ファイルを開けませんでした: {VIDEO_PATH}")
+        def get_frame():
+            ret, frame = cap.read()
+            if not ret:
+                return False, None
+            frame = cv2.resize(frame, (model.conf.frame_width, model.conf.frame_height))
+            return True, frame
 
-    cv2.destroyAllWindows()
+    else:
+        raise ValueError(f"不明なINPUT_SOURCE: '{INPUT_SOURCE}'")
 
-# if __name__ == "__main__":
-#     model = HumanDetector(config={})
-#     cap = ClsImageViewerUDP()
-#     cap.set_image_parameter()
-    
-#     while True:
-#         ret, frame = cap.read()
-#         if not ret:
-#             break
-#         out_frame, cx, cname = model.process_frame(frame)
-#         print(f"中心座標: {cx}, クラス: {cname}")
-#         cv2.imshow("Human ReID Detector", out_frame)
-#         if cx is not None:
-#             print(f"MATCH center_x={cx:.1f}, class={cname}")
-#         if cv2.waitKey(1) & 0xFF == ord("q"):
-#             break
-#     cap.release()
-#     cv2.destroyAllWindows()
+    try:
+        while True:
+            ret, frame = get_frame()
+            if not ret:
+                print("入力終了。" if INPUT_SOURCE == "video" else "画像を取得できませんでした。終了します。")
+                break
+            out_frame, cx, cname = model.process_frame(frame)
+            print(f"中心座標: {cx}, クラス: {cname}")
+            cv2.imshow("Human ReID Detector", out_frame)
+            if cx is not None:
+                print(f"MATCH center_x={cx:.1f}, class={cname}")
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+    finally:
+        if INPUT_SOURCE in ("camera", "video"):
+            cap.release()
+        cv2.destroyAllWindows()

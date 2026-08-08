@@ -165,7 +165,7 @@ class ClsImageViewerUDP:
                 if sc_image_number == self.sc_num_of_image - 1:
                     self.image_processing()
                     self.display_image()
-                    self.display_proc_image()
+                    # self.display_proc_image()
                     self.display_bgr_image()
 
             if self.bl_stop_loop:
