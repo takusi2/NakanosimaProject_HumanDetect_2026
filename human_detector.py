@@ -12,6 +12,7 @@ from torchreid.reid.utils.feature_extractor import FeatureExtractor
 from torchreid.reid.utils import compute_model_complexity
 
 from ClsImageViewerUDP import ClsImageViewerUDP
+from tools.aspect_filter import is_valid_aspect_ratio
 
 PERSON_CLASS_ID = 0
 MARGIN = 2
@@ -204,10 +205,14 @@ class HumanDetector:
 
                 bw, bh = x2 - x1, y2 - y1
                 area = bw * bh
+                is_valid_aspect = is_valid_aspect_ratio(
+                    bw, bh, self.conf.aspect_ratio_min, self.conf.aspect_ratio_max 
+                )
                 if (
                     bw < self.conf.min_box_w
                     or bh < self.conf.min_box_h
                     or area < self.conf.min_box_area
+                    or not is_valid_aspect
                 ):
                     metas.append(
                         {
@@ -415,7 +420,7 @@ class HumanDetector:
         return frame, center_x, class_name
 
 if __name__ == "__main__":
-    conf_path = "./config/config.yaml"
+    conf_path = "./config/config_aspect_filter.yaml"
     model = HumanDetector(config_path=conf_path)
 
     INPUT_SOURCE = model.conf.input_source
