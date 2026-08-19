@@ -2,6 +2,7 @@
 import numpy as np
 import cv2
 from ClsUdpReceiveData import ClsUdpReceiveData
+from bin_to_BGRmp4 import compute_center_surround
 import os
 import datetime
 
@@ -113,24 +114,47 @@ class ClsImageViewerUDP:
         if cv2.waitKey(1) & 0xFF == ord("q"):
             self.bl_stop_loop = True
 
-    # BGR画像への統合 --------------------------------------------
-    def get_bgr_image(self):
-        """受信済みバッファの0番=B, 1番=G, 2番=RからBGR画像を作成して返す"""
-        im_r = self.him_received[0, :].reshape(
-            (self.sc_image_height, self.sc_image_width)
-        )
-        im_g = self.him_received[1, :].reshape(
-            (self.sc_image_height, self.sc_image_width)
-        )
-        im_b = self.him_received[2, :].reshape(
-            (self.sc_image_height, self.sc_image_width)
-        )
-        im_bgr = cv2.merge([im_b, im_g, im_r])
-        return im_bgr
+    def get_center_surround_bgr_image(self):
+        """受信済みのCenter/Surrround各RGB画像から差分BGR画像を作成して返す"""
+        if self.sc_num_of_image < 6:
+            raise RuntimeError(
+                "Center-Surround画像には6チャンネル（Center RGB + Surround RGB）が必要です。"
+            )
+
+        center_r = self.get_image(0)
+        center_g = self.get_image(1)
+        center_b = self.get_image(2)
+        surround_r = self.get_image(3)
+        surround_g = self.get_image(4)
+        surround_b = self.get_image(5)
+
+        diff_r = self.compute_center_surround(center_r, surround_r)
+        diff_g = self.compute_center_surround(center_g, surround_g)
+        diff_b = self.compute_center_surround(center_b, surround_b)
+        return cv2.merge([diff_b, diff_g, diff_r])
+
+    def compute_center_surround(self, center_ch, surround_ch):
+        """
+        Center-Surround Retinexの計算：
+            R = center - surround
+        結果を0〜255のuint8にノーマライズして返す。
+        """
+        c = center_ch.astype(np.float32)
+        s = surround_ch.astype(np.float32)
+        diff = c - s
+
+        # 0〜255にノーマライズ
+        d_min, d_max = diff.min(), diff.max()
+        if d_max - d_min > 1e-6:
+            diff_norm = (diff - d_min) / (d_max - d_min) * 255.0
+        else:
+            diff_norm = np.zeros_like(diff)
+
+        return diff_norm.astype(np.uint8)
 
     # BGR画像の表示・保存 ------------------------------------------
     def display_bgr_image(self):
-        im_bgr = self.get_bgr_image()
+        im_bgr = self.get_center_surround_bgr_image()
         im_bgr_magnif = cv2.resize(
             im_bgr,
             (self.sc_magnif_image_width, self.sc_magnif_image_height),

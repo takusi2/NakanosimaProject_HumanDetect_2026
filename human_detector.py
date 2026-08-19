@@ -425,7 +425,7 @@ class HumanDetector:
         return frame, center_x, class_name
 
 if __name__ == "__main__":
-    conf_path = "./config/config.yaml"
+    conf_path = "./config/config2.yaml"
     model = HumanDetector(config_path=conf_path)
 
     INPUT_SOURCE = model.conf.input_source
@@ -436,7 +436,7 @@ if __name__ == "__main__":
         sensor = ClsImageViewerUDP()
         def get_frame():
             sensor.receive_one_set()
-            frame = sensor.get_bgr_image()
+            frame = sensor.get_center_surround_bgr_image()
             if frame is None:
                 return False, None
             frame = cv2.resize(frame, (model.conf.frame_width, model.conf.frame_height))

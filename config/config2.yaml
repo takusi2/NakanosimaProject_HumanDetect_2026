@@ -5,15 +5,15 @@
 # "video"  : 動画ファイル
 # ============================================================
 input_source: "udp"
-video_path: "./output/2-6-diff_human.mp4"
+video_path: "./output/1-10-hiroto-masa.mp4"
 camera_index: 0
 
 # モデル設定
 model_pt: "yolo11s.pt"
 pred_thres: 0.5
-frame_width: 180
+frame_width: 160
 frame_height: 120
-fps: 30
+fps: 5
 window_name: "YOLOv11 + OSNET"
 
 # 描画色の設定 (BGR順)
@@ -30,8 +30,9 @@ sample_y_bottom: 1  # 0.0~1.0の範囲で指定（下側の切り取り割合）
 
 # OSNETの設定
 reid_model: "osnet_x0_25"
-sim_thresh: 0.6
+sim_thresh: 0.65
 target_confirm_frames: 5
+target_confirm_window_frames: 8
 match_iou_thresh: 0.8
 
 # 検出ボックスの最小サイズ
