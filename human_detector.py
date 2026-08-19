@@ -55,7 +55,7 @@ class HumanDetector:
         self.G = G
         self.Gt = G.T  # [D, N]
 
-        self.track_info = []  # [{bbox, pos_count, last_frame_idx}]
+        self.track_info = []  # [{bbox, target_history, last_frame_idx}]
         self.frame_idx = 0
 
         if self.conf.debug_save_detect_crops:
@@ -260,6 +260,7 @@ class HumanDetector:
 
         best_match_sim = -1.0
         best_match_center_x = None
+        updated_track_indices = set()
 
         # 描画と判定
         fi = 0
@@ -295,20 +296,22 @@ class HumanDetector:
                 if best_iou >= self.conf.match_iou_thresh:
                     track = self.track_info[best_idx]
                     track["bbox"] = (x1, y1, x2, y2)
-                    track["pos_count"] = (
-                        track["pos_count"] + 1 if is_target_frame else 0
-                    )
+                    track["target_history"].append(is_target_frame)
+                    track["target_history"] = track["target_history"][
+                        -self.conf.target_confirm_window_frames:
+                    ]
                     track["last_frame_idx"] = self.frame_idx
-                    pos = track["pos_count"]
+                    updated_track_indices.add(best_idx)
                 else:
                     track = {
                         "bbox": (x1, y1, x2, y2),
-                        "pos_count": 1 if is_target_frame else 0,
+                        "target_history": [is_target_frame],
                         "last_frame_idx": self.frame_idx,
                     }
                     self.track_info.append(track)
-                    pos = track["pos_count"]
+                    updated_track_indices.add(len(self.track_info) - 1)
 
+                pos = sum(track["target_history"])
                 is_match = pos >= self.conf.target_confirm_frames
                 color = (
                     self.conf.confirmed_target_color
@@ -378,6 +381,13 @@ class HumanDetector:
                 1,
                 cv2.LINE_AA,
             )
+
+        for track_index, track in enumerate(self.track_info):
+            if track_index not in updated_track_indices:
+                track["target_history"].append(False)
+                track["target_history"] = track["target_history"][
+                    -self.conf.target_confirm_window_frames:
+                ]
 
         # 古いトラックを削除
         self.track_info = [
