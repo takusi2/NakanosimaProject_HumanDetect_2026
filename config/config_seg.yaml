@@ -9,12 +9,15 @@ video_path: "./output/1-10-hiroto-masa.mp4"
 camera_index: 0
 
 # モデル設定
-model_pt: "yolo11s.pt"
+seg_model_pt: "yolo11s-seg.pt"
 pred_thres: 0.5
 frame_width: 160
 frame_height: 120
 fps: 5
 window_name: "YOLOv11 + OSNET"
+
+# セグメンテーション設定
+fill_bground_color: [0, 0, 0]  # BGR順
 
 # 描画色の設定 (BGR順)
 person_color: [255, 0, 0]
@@ -30,15 +33,15 @@ sample_y_bottom: 1  # 0.0~1.0の範囲で指定（下側の切り取り割合）
 
 # OSNETの設定
 reid_model: "osnet_x0_25"
-sim_thresh: 0.65
+sim_thresh: 0.6
 target_confirm_frames: 5
 target_confirm_window_frames: 8
-match_iou_thresh: 0.8
+match_mask_iou_thresh: 0.7
 
-# 検出ボックスの最小サイズ
-min_box_w: 15     #人が横向きに写る際の幅に合わせて小さめに設定
-min_box_h: 45
-min_box_area: 900
+# セグメンテーション領域の最小サイズ
+min_width: 15     #人物が横向きに写る際の幅に合わせて小さめに設定
+min_height: 45
+min_area: 900
 
 # クロップ率（推論側）
 # x_marginは0.0~0.5の範囲で指定（左右それぞれの切り取り割合）
@@ -47,9 +50,9 @@ crop_y_top: 0.15
 crop_y_bottom: 0.97     # 下半身が切れないよう大きめに設定
 
 # デバッグ用設定
-debug_dir: "./debug_out/config2"
+debug_dir: "./debug_out/config_seg"
 debug_save_gallery_crops: true
-debug_save_detect_crops: false  # MAYBE/MATCH時のみ保存
+debug_save_detect_crops: true  # MAYBE/MATCH時のみ保存
 debug_print_detection_logs: false
 
 # トラック保持フレーム数
