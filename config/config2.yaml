@@ -4,8 +4,8 @@
 # "camera" : 内蔵カメラ
 # "video"  : 動画ファイル
 # ============================================================
-input_source: "udp"
-video_path: "./output/1-10-hiroto-masa.mp4"
+input_source: "video"
+video_path: "./output/2026-0820-1652-43_center_surround.mp4"
 camera_index: 0
 
 # モデル設定
@@ -13,13 +13,14 @@ model_pt: "yolo11s.pt"
 pred_thres: 0.5
 frame_width: 160
 frame_height: 120
-fps: 5
+fps: 30
 window_name: "YOLOv11 + OSNET"
 
 # 描画色の設定 (BGR順)
 person_color: [255, 0, 0]
 maybe_target_color: [0, 165, 255]
 confirmed_target_color: [0, 200, 0]
+number1_color: [0, 0, 255]
 text_color: [255, 255, 255]
 
 # 参照画像の設定
