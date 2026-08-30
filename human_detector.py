@@ -13,6 +13,7 @@ from torchreid.reid.utils import compute_model_complexity
 
 from ClsImageViewerUDP import ClsImageViewerUDP
 from tools.GetNumber1 import select_number1
+from tools.detection_result_saver import DetectionResultSaver
 
 PERSON_CLASS_ID = 0
 MARGIN = 2
@@ -27,6 +28,7 @@ class HumanDetector:
             config[key] = tuple(config[key])
 
         self.conf = SimpleNamespace(**config)
+        self._config_dict = config
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print("Using device:", self.device)
@@ -58,6 +60,24 @@ class HumanDetector:
 
         self.track_info = []  # [{bbox, target_history, last_frame_idx}]
         self.frame_idx = 0
+        self.next_track_id = 0
+        self.result_saver = None
+        if getattr(self.conf, "save_detection_results", True):
+            source_type = getattr(self.conf, "input_source", "unknown")
+            source_path = (
+                getattr(self.conf, "video_path", None)
+                if source_type == "video"
+                else None
+            )
+            self.result_saver = DetectionResultSaver(
+                output_root=getattr(
+                    self.conf, "detection_results_dir", "./annotations/detection_results"
+                ),
+                source_type=source_type,
+                source_path=source_path,
+                config_path=config_path,
+                config=self._config_dict,
+            )
 
         if self.conf.debug_save_detect_crops:
             os.makedirs(
@@ -183,7 +203,7 @@ class HumanDetector:
         # 表示
         cv2.imshow(window_name, resized)
 
-    def process_frame(self, frame: np.ndarray):
+    def process_frame(self, frame: np.ndarray, source_timestamp_s: float | None = None):
         """フレーム（描画後）, MATCHのcenter_x, class_name('A' or None)を返す。"""
         self.frame_idx += 1
         t0 = time.time()
@@ -264,6 +284,7 @@ class HumanDetector:
         match_similarities = [None] * len(metas)
         match_bboxes = [None] * len(metas)
         match_labels = [None] * len(metas)
+        detection_records = []
         updated_track_indices = set()
 
         # 描画と判定
@@ -284,6 +305,22 @@ class HumanDetector:
                         f"[det#{di}] state=SKIP bbox=({x1},{y1},{x2},{y2}) "
                         f"w={w} h={h} area={area} conf={conf_val} sim=N/A IoU=N/A pos_count=0"
                     )
+                detection_records.append(
+                    {
+                        "detection_index": di,
+                        "bbox_xyxy": [x1, y1, x2, y2],
+                        "yolo_confidence": det_conf,
+                        "width": m["w"],
+                        "height": m["h"],
+                        "area": m["area"],
+                        "status": "SKIP",
+                        "is_target_frame": None,
+                        "is_match": False,
+                        "is_number1": False,
+                        "similarity": None,
+                        "track_id": None,
+                    }
+                )
             else:
                 f = features[fi : fi + 1, :]
                 fi += 1
@@ -308,10 +345,12 @@ class HumanDetector:
                     updated_track_indices.add(best_idx)
                 else:
                     track = {
+                        "track_id": self.next_track_id,
                         "bbox": (x1, y1, x2, y2),
                         "target_history": [is_target_frame],
                         "last_frame_idx": self.frame_idx,
                     }
+                    self.next_track_id += 1
                     self.track_info.append(track)
                     updated_track_indices.add(len(self.track_info) - 1)
 
@@ -366,6 +405,22 @@ class HumanDetector:
                         f"[det#{di}] state={base} bbox=({x1},{y1},{x2},{y2}) "
                         f"w={w} h={h} area={area} conf={conf_val} sim={sim:.3f} IoU={best_iou:.3f} pos_count={pos}"
                     )
+                detection_records.append(
+                    {
+                        "detection_index": di,
+                        "bbox_xyxy": [x1, y1, x2, y2],
+                        "yolo_confidence": m["conf"],
+                        "width": m["w"],
+                        "height": m["h"],
+                        "area": m["area"],
+                        "status": base,
+                        "is_target_frame": is_target_frame,
+                        "is_match": is_match,
+                        "is_number1": False,
+                        "similarity": sim,
+                        "track_id": track["track_id"],
+                    }
+                )
 
             # 描画
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
@@ -392,6 +447,7 @@ class HumanDetector:
 
         number1_index, _ = select_number1(match_similarities)
         if number1_index >= 0 and match_bboxes[number1_index] is not None:
+            detection_records[number1_index]["is_number1"] = True
             number1_bbox = match_bboxes[number1_index]
             number1_label = match_labels[number1_index]
             cv2.rectangle(
@@ -440,6 +496,13 @@ class HumanDetector:
         # FPS表示
         elapsed = time.time() - t0
         fps = 1.0 / max(elapsed, 1e-6)
+        if self.result_saver is not None:
+            self.result_saver.write_frame(
+                frame_index=self.frame_idx,
+                source_timestamp_s=source_timestamp_s,
+                processing_time_s=elapsed,
+                detections=detection_records,
+            )
         cv2.putText(
             frame,
             f"FPS: {fps:.1f}",
@@ -464,6 +527,11 @@ class HumanDetector:
             float(best_match_center_x) if best_match_center_x is not None else None
         )
         return frame, center_x, class_name
+
+    def close(self):
+        """検出結果の保存を完了する。"""
+        if self.result_saver is not None:
+            self.result_saver.close()
 
 if __name__ == "__main__":
     conf_path = "./config/config2.yaml"
@@ -514,7 +582,12 @@ if __name__ == "__main__":
             if not ret:
                 print("入力終了。" if INPUT_SOURCE == "video" else "画像を取得できませんでした。終了します。")
                 break
-            out_frame, cx, cname = model.process_frame(frame)
+            source_timestamp_s = (
+                cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+                if INPUT_SOURCE == "video"
+                else None
+            )
+            out_frame, cx, cname = model.process_frame(frame, source_timestamp_s)
             print(f"中心座標: {cx}, クラス: {cname}")
             cv2.imshow("Human ReID Detector", out_frame)
             if cx is not None:
@@ -522,6 +595,7 @@ if __name__ == "__main__":
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
     finally:
+        model.close()
         if INPUT_SOURCE in ("camera", "video"):
             cap.release()
         cv2.destroyAllWindows()
