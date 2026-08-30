@@ -12,6 +12,7 @@ from torchreid.reid.utils.feature_extractor import FeatureExtractor
 from torchreid.reid.utils import compute_model_complexity
 
 from ClsImageViewerUDP import ClsImageViewerUDP
+from tools.GetNumber1 import select_number1
 
 PERSON_CLASS_ID = 0
 MARGIN = 2
@@ -22,7 +23,7 @@ class HumanDetector:
         with open(config_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
 
-        for key in ("person_color", "maybe_target_color", "confirmed_target_color", "text_color"):
+        for key in ("person_color", "maybe_target_color", "confirmed_target_color", "number1_color", "text_color"):
             config[key] = tuple(config[key])
 
         self.conf = SimpleNamespace(**config)
@@ -260,6 +261,9 @@ class HumanDetector:
 
         best_match_sim = -1.0
         best_match_center_x = None
+        match_similarities = [None] * len(metas)
+        match_bboxes = [None] * len(metas)
+        match_labels = [None] * len(metas)
         updated_track_indices = set()
 
         # 描画と判定
@@ -339,6 +343,10 @@ class HumanDetector:
                 if is_match and sim > best_match_sim:
                     best_match_sim = sim
                     best_match_center_x = (x1 + x2) / 2.0
+                if is_match:
+                    match_similarities[di] = sim
+                    match_bboxes[di] = (x1, y1, x2, y2)
+                    match_labels[di] = label
 
                 # 保存（MAYBE/MATCH 時のみ）
                 if self.conf.debug_save_detect_crops and base in ("MAYBE", "MATCH"):
@@ -374,6 +382,39 @@ class HumanDetector:
             cv2.putText(
                 frame,
                 label,
+                (x1 + 2, max(y1, text_h)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                self.conf.text_color,
+                1,
+                cv2.LINE_AA,
+            )
+
+        number1_index, _ = select_number1(match_similarities)
+        if number1_index >= 0 and match_bboxes[number1_index] is not None:
+            number1_bbox = match_bboxes[number1_index]
+            number1_label = match_labels[number1_index]
+            cv2.rectangle(
+                frame,
+                number1_bbox[:2],
+                number1_bbox[2:],
+                self.conf.number1_color,
+                2,
+            )
+            x1, y1, _, _ = number1_bbox
+            (text_w, text_h), _ = cv2.getTextSize(
+                number1_label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1
+            )
+            cv2.rectangle(
+                frame,
+                (x1, max(y1 - text_h - MARGIN, 0)),
+                (x1 + text_w + MARGIN, max(y1 + MARGIN, text_h + MARGIN)),
+                self.conf.number1_color,
+                thickness=-1,
+            )
+            cv2.putText(
+                frame,
+                number1_label,
                 (x1 + 2, max(y1, text_h)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
