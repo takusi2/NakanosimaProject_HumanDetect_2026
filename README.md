@@ -54,12 +54,10 @@ Python 3.10 以降を推奨します。仮想環境を作成してから、必�
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install torch torchvision
-pip install ultralytics opencv-python pyyaml
-pip install git+https://github.com/KaiyangZhou/deep-person-reid.git
+python -m pip install -r requirements.txt
 ```
 
-NVIDIA GPU を使用する場合は、利用する CUDA 環境に対応した PyTorch をインストールしてください。実行時には CUDA が使用可能なら GPU、それ以外では CPU が自動選択されます。
+`requirements.txt` は、Windows・Python 3.13・RTX 4050・CUDA Toolkit 12.9 を確認した環境向けに、CUDA 12.9版の PyTorch を指定しています。別のPCやJetsonではPyTorchの組み合わせを見直してください。実行時には CUDA が使用可能なら GPU、それ以外では CPU が自動選択されます。
 
 YOLO の重み `yolo11s.pt` は、初回実行時に Ultralytics が取得します。オフライン環境では、あらかじめ重みファイルを配置して、設定の `model_pt` にパスを指定してください。
 
