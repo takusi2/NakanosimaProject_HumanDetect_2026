@@ -8,7 +8,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from tools.create_ground_truth import create_document, save_document, set_frame_annotation
+from tools.create_ground_truth import (
+    clamp_display_scale,
+    create_document,
+    save_document,
+    set_frame_annotation,
+)
 
 
 class CreateGroundTruthTest(unittest.TestCase):
@@ -35,6 +40,12 @@ class CreateGroundTruthTest(unittest.TestCase):
             set_frame_annotation(document, 1, "target")
         with self.assertRaises(ValueError):
             set_frame_annotation(document, 1, "no_target", (1, 1))
+
+    def test_display_scale_can_enlarge_and_is_limited_by_max_width(self):
+        self.assertEqual(clamp_display_scale(2.0, 640), 2.0)
+        self.assertEqual(clamp_display_scale(10.0, 640), 6.0)
+        self.assertEqual(clamp_display_scale(10.0, 1000), 4.0)
+        self.assertEqual(clamp_display_scale(0.01, 640), 0.25)
 
 
 if __name__ == "__main__":

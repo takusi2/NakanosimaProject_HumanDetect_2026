@@ -37,8 +37,13 @@ RESUME_EXISTING_ANNOTATION = True
 LONG_PRESS_SECONDS = 0.25
 # 長押し中の保存間隔（秒）。カーソルを対象の胴体中心に合わせ続けて使う。
 CONTINUOUS_SAVE_INTERVAL_SECONDS = 0.05
-# 表示ウィンドウの最大幅。元動画の座標へ自動変換して保存する。
-DISPLAY_MAX_WIDTH = 1280
+# 表示ウィンドウの最大幅。拡大時もこの幅を超えない。
+DISPLAY_MAX_WIDTH = 4000
+# 起動時の表示倍率と、キーボード操作時の倍率範囲。
+INITIAL_DISPLAY_SCALE = 1.0
+MIN_DISPLAY_SCALE = 0.25
+MAX_DISPLAY_SCALE = 6.0
+ZOOM_STEP = 1.25
 WINDOW_NAME = "Point Ground Truth"
 
 SCHEMA_VERSION = 1
@@ -95,6 +100,16 @@ def save_document(output_path: Path, document: dict[str, Any]) -> None:
     temporary_path.replace(output_path)
 
 
+def clamp_display_scale(requested_scale: float, image_width: int) -> float:
+    """表示倍率を、利用者設定と最大表示幅の範囲内に収める。"""
+    if image_width <= 0:
+        raise ValueError("画像幅は正の値である必要があります。")
+    max_scale_from_width = DISPLAY_MAX_WIDTH / image_width
+    upper = min(MAX_DISPLAY_SCALE, max_scale_from_width)
+    lower = min(MIN_DISPLAY_SCALE, upper)
+    return min(max(requested_scale, lower), upper)
+
+
 class PointGroundTruthAnnotator:
     def __init__(self, video_path: Path, output_path: Path) -> None:
         self.video_path = video_path
@@ -110,7 +125,7 @@ class PointGroundTruthAnnotator:
         if self.width <= 0 or self.height <= 0 or self.frame_count <= 0:
             raise RuntimeError("動画のサイズまたはフレーム数を取得できませんでした。")
 
-        self.scale = min(1.0, DISPLAY_MAX_WIDTH / self.width)
+        self.scale = clamp_display_scale(INITIAL_DISPLAY_SCALE, self.width)
         self.document = self._load_or_create_document()
         self.current_frame_index = self._first_unlabeled_frame()
         self.current_frame = None
@@ -190,18 +205,29 @@ class PointGroundTruthAnnotator:
             )
 
         overlay = f"Frame {self.current_frame_index}/{self.frame_count}  {status}"
-        controls = "Click: target | Hold left: continuous | Enter: no target | I: ignore | B: back | R: clear | Q: quit"
+        controls = "Click: target | Hold: continuous | +/-: zoom | 0: reset | Enter: no target | I: ignore | B: back | R: clear | Q: quit"
         cv2.rectangle(display, (0, 0), (min(display.shape[1], 1200), 54), (0, 0, 0), -1)
         cv2.putText(display, overlay, (10, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
         cv2.putText(display, controls, (10, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.43, (255, 255, 255), 1, cv2.LINE_AA)
 
-        if self.scale < 1.0:
+        if self.scale != 1.0:
             display = cv2.resize(
                 display,
                 (int(self.width * self.scale), int(self.height * self.scale)),
-                interpolation=cv2.INTER_AREA,
+                interpolation=(
+                    cv2.INTER_AREA if self.scale < 1.0 else cv2.INTER_NEAREST
+                ),
             )
         cv2.imshow(WINDOW_NAME, display)
+
+    def _change_zoom(self, requested_scale: float) -> None:
+        self.scale = clamp_display_scale(requested_scale, self.width)
+        cv2.resizeWindow(
+            WINDOW_NAME,
+            int(round(self.width * self.scale)),
+            int(round(self.height * self.scale)),
+        )
+        self._render()
 
     def _save_and_next(self, state: str, point_xy: tuple[int, int] | None = None) -> None:
         set_frame_annotation(self.document, self.current_frame_index, state, point_xy)
@@ -262,7 +288,12 @@ class PointGroundTruthAnnotator:
     def run(self) -> None:
         print("正解データ保存先:", self.output_path)
         print("対象マネキンの胴体中心をクリックしてください。長押し中は連続保存します。")
-        cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
+        cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(
+            WINDOW_NAME,
+            int(round(self.width * self.scale)),
+            int(round(self.height * self.scale)),
+        )
         cv2.setMouseCallback(WINDOW_NAME, self._on_mouse)
         self._render()
         try:
@@ -281,6 +312,12 @@ class PointGroundTruthAnnotator:
                     self._render()
                 elif key in (ord("r"), ord("R")):
                     self._clear_current_annotation()
+                elif key in (ord("+"), ord("=")):
+                    self._change_zoom(self.scale * ZOOM_STEP)
+                elif key in (ord("-"), ord("_")):
+                    self._change_zoom(self.scale / ZOOM_STEP)
+                elif key == ord("0"):
+                    self._change_zoom(INITIAL_DISPLAY_SCALE)
         finally:
             self.document["completed"] = len(self.document["frames"]) == self.frame_count
             save_document(self.output_path, self.document)
