@@ -204,12 +204,6 @@ class PointGroundTruthAnnotator:
                 display, self.preview_point, (0, 255, 255), cv2.MARKER_CROSS, 18, 2
             )
 
-        overlay = f"Frame {self.current_frame_index}/{self.frame_count}  {status}"
-        controls = "Click: target | Hold: continuous | +/-: zoom | 0: reset | Enter: no target | I: ignore | B: back | R: clear | Q: quit"
-        cv2.rectangle(display, (0, 0), (min(display.shape[1], 1200), 54), (0, 0, 0), -1)
-        cv2.putText(display, overlay, (10, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
-        cv2.putText(display, controls, (10, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.43, (255, 255, 255), 1, cv2.LINE_AA)
-
         if self.scale != 1.0:
             display = cv2.resize(
                 display,
@@ -218,6 +212,14 @@ class PointGroundTruthAnnotator:
                     cv2.INTER_AREA if self.scale < 1.0 else cv2.INTER_NEAREST
                 ),
             )
+
+        # 映像を拡大しても、操作表示の文字まで巨大化しないように、
+        # テキストはリサイズ後の画像に固定ピクセルサイズで描画する。
+        overlay = f"Frame {self.current_frame_index}/{self.frame_count}  {status}"
+        controls = "Click: target | Hold: continuous | +/-: zoom | 0: reset | Enter: no target | I: ignore | B: back | R: clear | Q: quit"
+        cv2.rectangle(display, (0, 0), (min(display.shape[1], 1200), 54), (0, 0, 0), -1)
+        cv2.putText(display, overlay, (10, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(display, controls, (10, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.43, (255, 255, 255), 1, cv2.LINE_AA)
         cv2.imshow(WINDOW_NAME, display)
 
     def _change_zoom(self, requested_scale: float) -> None:
