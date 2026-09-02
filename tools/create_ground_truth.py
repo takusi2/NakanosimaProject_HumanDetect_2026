@@ -29,14 +29,14 @@ import cv2
 # ============================================================
 # 利用者設定：通常はここだけを書き換える
 # ============================================================
-VIDEO_PATH = Path("./output/2-6-hiroto.mp4")
+VIDEO_PATH = Path("./output/2026-0819-1713-38_center_surround.mp4")
 OUTPUT_ROOT = Path("./annotations/ground_truth")
 RESUME_EXISTING_ANNOTATION = True
 
 # この時間を超えて押し続けると連続保存を開始する（秒）。
 LONG_PRESS_SECONDS = 0.25
 # 長押し中の保存間隔（秒）。カーソルを対象の胴体中心に合わせ続けて使う。
-CONTINUOUS_SAVE_INTERVAL_SECONDS = 0.15
+CONTINUOUS_SAVE_INTERVAL_SECONDS = 0.05
 # 表示ウィンドウの最大幅。元動画の座標へ自動変換して保存する。
 DISPLAY_MAX_WIDTH = 1280
 WINDOW_NAME = "Point Ground Truth"
