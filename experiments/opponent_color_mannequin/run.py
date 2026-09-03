@@ -54,6 +54,7 @@ def main() -> None:
         weight_mode=config.get("weight_mode", "inner_rectangle"),
         min_weight=float(config.get("min_weight", 0.05)),
         margins=tuple(float(config.get(f"margin_{side}", 0.15)) for side in ("top", "bottom", "left", "right")),
+        device=str(config.get("device", "cuda")),
     )
 
     source = str(config.get("input_source", "video"))

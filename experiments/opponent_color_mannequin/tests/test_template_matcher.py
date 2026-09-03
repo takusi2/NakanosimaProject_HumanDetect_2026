@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 import numpy as np
+import torch
 
 from experiments.opponent_color_mannequin.src.matcher import OpponentColorMatcher
 from experiments.opponent_color_mannequin.src.opponent_color import bgr_to_opponent_features
@@ -13,14 +14,14 @@ class OpponentColorFeatureTests(unittest.TestCase):
     def test_bgr_conversion_uses_expected_opponent_axes(self) -> None:
         # BGR: blue=30, green=20, red=10
         image = np.array([[[30, 20, 10]]], dtype=np.uint8)
-        features = bgr_to_opponent_features(image)
+        features = bgr_to_opponent_features(torch.from_numpy(image).to(dtype=torch.float32))
 
         self.assertAlmostEqual(float(features[0, 0, 0]), -10.0)
         self.assertAlmostEqual(float(features[0, 0, 1]), -15.0)
         self.assertAlmostEqual(float(features[0, 0, 2]), 18.596, places=3)
 
     def test_inner_rectangle_zeros_template_edges(self) -> None:
-        weights = inner_rectangle(10, 10, (0.2, 0.2, 0.2, 0.2))
+        weights = inner_rectangle(10, 10, (0.2, 0.2, 0.2, 0.2), device=torch.device("cpu"))
         self.assertEqual(float(weights[0, 5]), 0.0)
         self.assertEqual(float(weights[5, 0]), 0.0)
         self.assertEqual(float(weights[5, 5]), 1.0)
@@ -32,7 +33,9 @@ class MatcherTests(unittest.TestCase):
         template = rng.integers(0, 256, size=(8, 8, 3), dtype=np.uint8)
         frame = np.zeros((32, 40, 3), dtype=np.uint8)
         frame[16:24, 24:32] = template
-        matcher = OpponentColorMatcher(template, max_error=0.1, weight_mode="center_falloff")
+        matcher = OpponentColorMatcher(
+            template, max_error=0.1, weight_mode="center_falloff", device="cpu"
+        )
 
         result = matcher.match(frame, stride_x=4, stride_y=4)
 
@@ -44,7 +47,9 @@ class MatcherTests(unittest.TestCase):
         template = np.full((4, 4, 3), 200, dtype=np.uint8)
         frame = np.zeros((10, 11, 3), dtype=np.uint8)
         frame[6:10, 7:11] = template
-        matcher = OpponentColorMatcher(template, max_error=0.1, weight_mode="center_falloff")
+        matcher = OpponentColorMatcher(
+            template, max_error=0.1, weight_mode="center_falloff", device="cpu"
+        )
 
         result = matcher.match(frame, stride_x=3, stride_y=4)
 
@@ -54,12 +59,27 @@ class MatcherTests(unittest.TestCase):
     def test_rejects_minimum_when_it_exceeds_threshold(self) -> None:
         template = np.full((4, 4, 3), 255, dtype=np.uint8)
         frame = np.zeros((12, 12, 3), dtype=np.uint8)
-        matcher = OpponentColorMatcher(template, max_error=1.0, weight_mode="center_falloff")
+        matcher = OpponentColorMatcher(
+            template, max_error=1.0, weight_mode="center_falloff", device="cpu"
+        )
 
         result = matcher.match(frame, stride_x=4, stride_y=4)
 
         self.assertFalse(result.detected)
         self.assertGreater(result.score, 1.0)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA is required")
+    def test_keeps_template_and_error_map_on_gpu(self) -> None:
+        template = np.full((4, 4, 3), 128, dtype=np.uint8)
+        frame = np.zeros((12, 12, 3), dtype=np.uint8)
+        frame[4:8, 4:8] = template
+        matcher = OpponentColorMatcher(template, max_error=0.1, device="cuda")
+
+        result = matcher.match(frame, stride_x=4, stride_y=4)
+
+        self.assertEqual(matcher.template_features.device.type, "cuda")
+        self.assertEqual(result.score_map.device.type, "cuda")
+        self.assertTrue(result.detected)
 
 
 if __name__ == "__main__":

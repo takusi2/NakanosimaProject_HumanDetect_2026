@@ -1,29 +1,33 @@
-"""テンプレート画素の重要度を表す二次元重みマップ。"""
+"""GPU上でテンプレート画素の重要度を表す二次元重みマップを作る。"""
 
 from __future__ import annotations
 
-import numpy as np
+import torch
 
 
-def center_falloff(height: int, width: int, min_weight: float = 0.05) -> np.ndarray:
+def center_falloff(
+    height: int, width: int, min_weight: float = 0.05, *, device: torch.device
+) -> torch.Tensor:
     """中心が 1、四隅が ``min_weight`` の滑らかな楕円重みを返す。"""
     if height <= 0 or width <= 0:
         raise ValueError("height and width must be positive")
     if not 0.0 <= min_weight <= 1.0:
         raise ValueError("min_weight must be between 0 and 1")
 
-    y = np.linspace(-1.0, 1.0, height, dtype=np.float32)
-    x = np.linspace(-1.0, 1.0, width, dtype=np.float32)
-    radius = np.sqrt(y[:, None] ** 2 + x[None, :] ** 2)
-    normalized_radius = np.clip(radius / np.sqrt(2.0), 0.0, 1.0)
-    return (min_weight + (1.0 - min_weight) * (1.0 - normalized_radius)).astype(np.float32)
+    y = torch.linspace(-1.0, 1.0, height, dtype=torch.float32, device=device)
+    x = torch.linspace(-1.0, 1.0, width, dtype=torch.float32, device=device)
+    radius = torch.sqrt(y[:, None].square() + x[None, :].square())
+    normalized_radius = torch.clamp(radius / (2.0**0.5), 0.0, 1.0)
+    return min_weight + (1.0 - min_weight) * (1.0 - normalized_radius)
 
 
 def inner_rectangle(
     height: int,
     width: int,
     margins: tuple[float, float, float, float],
-) -> np.ndarray:
+    *,
+    device: torch.device,
+) -> torch.Tensor:
     """指定した上・下・左・右の比率をゼロ重みとした矩形マップを返す。"""
     if height <= 0 or width <= 0:
         raise ValueError("height and width must be positive")
@@ -36,6 +40,6 @@ def inner_rectangle(
     if y0 >= y1 or x0 >= x1:
         raise ValueError("margins leave no weighted pixels")
 
-    weights = np.zeros((height, width), dtype=np.float32)
+    weights = torch.zeros((height, width), dtype=torch.float32, device=device)
     weights[y0:y1, x0:x1] = 1.0
     return weights
