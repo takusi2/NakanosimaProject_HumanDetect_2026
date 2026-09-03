@@ -1,0 +1,31 @@
+# テンプレート照合の初期検証用設定。
+# max_error は実測フレームのスコア分布を確認して決定する。
+template_path: ../data/template.png
+input_source: video
+video_path: ../data/input.mp4
+camera_index: 0
+
+# template size / 4 ～ / 8 が質問時の想定値。
+# この値を null にするとテンプレート幅・高さの 1/4 を使う。
+stride_x: null
+stride_y: null
+max_error: 30.0
+
+brightness_weights:
+  r: 0.2126
+  g: 0.7152
+  b: 0.0722
+
+# 三特徴量の寄与。初期値は質問の式どおり等しい寄与。
+channel_weights:
+  rg: 1.0
+  by: 1.0
+  y: 1.0
+
+# center_falloff または inner_rectangle
+weight_mode: inner_rectangle
+min_weight: 0.05
+margin_top: 0.15
+margin_bottom: 0.15
+margin_left: 0.15
+margin_right: 0.15
