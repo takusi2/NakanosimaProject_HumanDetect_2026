@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 import cv2
+import numpy as np
 import yaml
 
 EXPERIMENT_DIR = Path(__file__).resolve().parent
@@ -36,7 +37,10 @@ def main() -> None:
     config = _load_config(config_file)
 
     template_path = _config_path(str(config["template_path"]), config_file)
-    template = cv2.imread(str(template_path), cv2.IMREAD_COLOR)
+    # cv2.imread は Windows で日本語を含むパスを読めないことがあるため、
+    # ファイルを Python 側で読み、OpenCV で画像として復号する。
+    template_bytes = np.fromfile(str(template_path), dtype=np.uint8)
+    template = cv2.imdecode(template_bytes, cv2.IMREAD_COLOR)
     if template is None:
         raise FileNotFoundError(f"template image cannot be read: {template_path}")
 
