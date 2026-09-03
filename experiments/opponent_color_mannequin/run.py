@@ -2,71 +2,66 @@
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 import sys
 
 import cv2
 import numpy as np
-import yaml
 
 EXPERIMENT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(EXPERIMENT_DIR.parents[1]))
 
 from experiments.opponent_color_mannequin.src.matcher import OpponentColorMatcher  # noqa: E402
 
+# 実行時に使う設定は、分かりやすさのためこのファイルに直接書く。
+TEMPLATE_PATH = Path(
+    r"C:\Users\takus\OneDrive\ドキュメント\ChatGPT\NakanosimaProject_HumanDetect_2026\humanA\masa_gc1_gs6.jpg"
+)
+INPUT_SOURCE = "video"  # "video" または "camera"
+VIDEO_PATH = Path(
+    r"C:\Users\takus\OneDrive\ドキュメント\ChatGPT\NakanosimaProject_HumanDetect_2026\output\2026-0826-1557-39_center_surround.mp4"
+)
+CAMERA_INDEX = 0
 
-def _config_path(value: str, config_file: Path) -> Path:
-    path = Path(value)
-    return path if path.is_absolute() else (config_file.parent / path).resolve()
-
-
-def _load_config(config_file: Path) -> dict:
-    with config_file.open(encoding="utf-8") as handle:
-        config = yaml.safe_load(handle)
-    if not isinstance(config, dict):
-        raise ValueError("config must be a YAML mapping")
-    return config
+STRIDE_X = 8
+STRIDE_Y = 8
+MAX_ERROR = 40.0
+BRIGHTNESS_WEIGHTS = (0.299, 0.587, 0.114)
+CHANNEL_WEIGHTS = (1.0, 1.0, 1.0)
+WEIGHT_MODE = "center_falloff"
+MIN_WEIGHT = 0.05
+MARGINS = (0.15, 0.15, 0.15, 0.15)
+DEVICE = "cuda"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="二十反対色テンプレート照合")
-    parser.add_argument("--config", type=Path, required=True, help="YAML 設定ファイル")
-    args = parser.parse_args()
-    config_file = args.config.resolve()
-    config = _load_config(config_file)
-
-    template_path = _config_path(str(config["template_path"]), config_file)
+    print(f"template_path={TEMPLATE_PATH}")
     # cv2.imread は Windows で日本語を含むパスを読めないことがあるため、
     # ファイルを Python 側で読み、OpenCV で画像として復号する。
-    template_bytes = np.fromfile(str(template_path), dtype=np.uint8)
+    template_bytes = np.fromfile(str(TEMPLATE_PATH), dtype=np.uint8)
     template = cv2.imdecode(template_bytes, cv2.IMREAD_COLOR)
     if template is None:
-        raise FileNotFoundError(f"template image cannot be read: {template_path}")
+        raise FileNotFoundError(f"template image cannot be read: {TEMPLATE_PATH}")
 
     matcher = OpponentColorMatcher(
         template,
-        max_error=float(config["max_error"]),
-        brightness_weights=tuple(config.get("brightness_weights", {}).get(k, d) for k, d in (
-            ("r", 0.2126), ("g", 0.7152), ("b", 0.0722)
-        )),
-        channel_weights=tuple(config.get("channel_weights", {}).get(k, 1.0) for k in ("rg", "by", "y")),
-        weight_mode=config.get("weight_mode", "inner_rectangle"),
-        min_weight=float(config.get("min_weight", 0.05)),
-        margins=tuple(float(config.get(f"margin_{side}", 0.15)) for side in ("top", "bottom", "left", "right")),
-        device=str(config.get("device", "cuda")),
+        max_error=MAX_ERROR,
+        brightness_weights=BRIGHTNESS_WEIGHTS,
+        channel_weights=CHANNEL_WEIGHTS,
+        weight_mode=WEIGHT_MODE,
+        min_weight=MIN_WEIGHT,
+        margins=MARGINS,
+        device=DEVICE,
     )
 
-    source = str(config.get("input_source", "video"))
-    if source == "camera":
-        capture = cv2.VideoCapture(int(config.get("camera_index", 0)))
-    elif source == "video":
-        video_path = _config_path(str(config["video_path"]), config_file)
-        capture = cv2.VideoCapture(str(video_path))
+    if INPUT_SOURCE == "camera":
+        capture = cv2.VideoCapture(CAMERA_INDEX)
+    elif INPUT_SOURCE == "video":
+        capture = cv2.VideoCapture(str(VIDEO_PATH))
     else:
         raise ValueError("input_source must be 'video' or 'camera'")
     if not capture.isOpened():
-        raise RuntimeError(f"cannot open {source} input")
+        raise RuntimeError(f"cannot open {INPUT_SOURCE} input")
 
     try:
         while True:
@@ -75,8 +70,8 @@ def main() -> None:
                 break
             result = matcher.match(
                 frame,
-                stride_x=config.get("stride_x"),
-                stride_y=config.get("stride_y"),
+                stride_x=STRIDE_X,
+                stride_y=STRIDE_Y,
             )
             x, y = result.top_left
             colour = (0, 255, 0) if result.detected else (0, 0, 255)

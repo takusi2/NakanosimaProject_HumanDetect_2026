@@ -47,10 +47,10 @@ score = sum(template_weight * pixel_error) / sum(template_weight)
 env\Scripts\python.exe -m unittest experiments.opponent_color_mannequin.tests.test_template_matcher
 ```
 
-実行用の入力・しきい値は [`config/default.yaml`](config/default.yaml) に置いています。動画またはカメラを処理するには、テンプレート画像と入力パスを設定してから次を実行します。
+実行用のテンプレート画像パス、動画パス、しきい値は [`run.py`](run.py) 冒頭の定数に直接書いています。動画またはカメラを切り替えるには、同ファイルの `INPUT_SOURCE` を変更してから次を実行します。
 
 ```powershell
-env\Scripts\python.exe experiments/opponent_color_mannequin/run.py --config experiments/opponent_color_mannequin/config/default.yaml
+env\Scripts\python.exe experiments/opponent_color_mannequin/run.py
 ```
 
 表示された枠は最小スコアの位置です。緑はしきい値以下（検出）、赤はしきい値超過（未検出）を表し、`q` キーで終了します。
