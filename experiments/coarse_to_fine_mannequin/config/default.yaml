@@ -1,0 +1,36 @@
+# 粗探索・詳細照合の実験設定。パスはこのYAMLファイルからの相対パスでもよい。
+template_path: "../../../humanA/1-10-hiroto - frame at 0m0s.jpg"
+input_source: video
+video_path: "../../../output/1-10-hiroto-masa.mp4"
+camera_index: 0
+
+device: cuda
+frame_downscale: 0.25
+
+# 縮小フレームで使うテンプレート倍率。0.20は、元画像で0.8倍相当を1/4へ縮めた大きさ。
+coarse_template_scales: [0.20]
+# 元解像度ROIで使うテンプレート倍率。
+detail_template_scales: [1.0, 0.8, 0.6, 0.4]
+coarse_stride: 2
+detail_stride: 4
+coarse_top_k: 3
+coarse_candidates_per_template: 20
+nms_distance_original_px: 120
+roi_margin_px: 32
+final_max_error: 27.0
+
+brightness_weights:
+  r: 0.299
+  g: 0.587
+  b: 0.114
+channel_weights:
+  rg: 0.5
+  by: 0.5
+  y: 1.0
+min_weight: 0.05
+
+# 全保存は容量を使う。1なら毎フレーム、5なら5フレームごとに保存する。
+save_every_n_frames: 1
+max_frames: null
+show_window: true
+results_root: "../results"
