@@ -71,6 +71,15 @@ def main() -> None:
     save_every_n_frames = int(config.get("save_every_n_frames", 1))
     max_frames = config.get("max_frames")
     show_window = bool(config.get("show_window", True))
+    display_width = config.get("display_width")
+    display_height = config.get("display_height")
+    if (display_width is None) != (display_height is None):
+        raise ValueError("display_width and display_height must be specified together")
+    if display_width is not None:
+        display_width = int(display_width)
+        display_height = int(display_height)
+        if display_width <= 0 or display_height <= 0:
+            raise ValueError("display_width and display_height must be positive")
     frame_number = 0
     try:
         while True:
@@ -83,22 +92,36 @@ def main() -> None:
             if frame_number % save_every_n_frames == 0:
                 writer.save_frame(frame_number, frame, result)
             if show_window:
-                display = frame.copy()
+                # 検出は上の matcher.process(frame) で元フレームのまま完了している。
+                # ここで作る display は表示専用であり、判定値や保存元フレームを変えない。
+                if display_width is None:
+                    display = frame.copy()
+                    scale_x = 1.0
+                    scale_y = 1.0
+                else:
+                    interpolation = cv2.INTER_LINEAR if display_width >= frame.shape[1] else cv2.INTER_AREA
+                    display = cv2.resize(frame, (display_width, display_height), interpolation=interpolation)
+                    scale_x = display_width / frame.shape[1]
+                    scale_y = display_height / frame.shape[0]
                 best = result.best_match
                 colour = (0, 255, 0) if result.detected else (0, 0, 255)
                 cv2.rectangle(
                     display,
-                    (best.x, best.y),
-                    (best.x + best.template.width, best.y + best.template.height),
+                    (round(best.x * scale_x), round(best.y * scale_y)),
+                    (
+                        round((best.x + best.template.width) * scale_x),
+                        round((best.y + best.template.height) * scale_y),
+                    ),
                     colour,
-                    2,
+                    max(1, round(2 * min(scale_x, scale_y))),
                 )
                 cv2.putText(
                     display,
                     f"{'MANNEQUIN' if result.detected else 'NO MATCH'} score={best.score:.2f}",
-                    (8, 24),
+                    # スコア文字は映像倍率に連動させず、表示領域を占有しない。
+                    (8, 28),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.65,
+                    0.8,
                     colour,
                     2,
                     cv2.LINE_AA,
