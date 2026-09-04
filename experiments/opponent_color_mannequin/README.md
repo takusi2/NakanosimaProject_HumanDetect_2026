@@ -4,10 +4,10 @@ YOLO と OSNet を使う現行の人物検出とは独立した、マネキン�
 
 ## 処理
 
-1. テンプレート BGR 画像から、各画素の `RG`、`BY`、`Y` を計算して保持する。
+1. テンプレート BGR 画像を、元サイズを含む複数の縮小率へリサイズし、各サイズの `RG`、`BY`、`Y` をGPU上に保持する。
 2. テンプレートと同じ大きさの重みマップを作る。背景とみなす場所の重みを小さくする。
 3. フレームを指定ストライドで走査し、テンプレートと同じ大きさの各領域について重み付き誤差を求める。
-4. 最小スコアがしきい値以下なら、その領域の中心をマネキン位置として返す。
+4. 全テンプレートサイズ・全候補位置のうち最小スコアを選び、しきい値以下ならその領域の中心をマネキン位置として返す。
 
 画素 `(y, x)` の特徴量は、BGR 入力を RGB に読み替えて次で定義します。
 
@@ -47,10 +47,10 @@ score = sum(template_weight * pixel_error) / sum(template_weight)
 env\Scripts\python.exe -m unittest experiments.opponent_color_mannequin.tests.test_template_matcher
 ```
 
-実行用のテンプレート画像パス、動画パス、しきい値は [`run.py`](run.py) 冒頭の定数に直接書いています。動画またはカメラを切り替えるには、同ファイルの `INPUT_SOURCE` を変更してから次を実行します。
+テンプレート画像パス、動画パス、しきい値、縮小率は [`config/default.yaml`](config/default.yaml) に書いています。`template_scales` の各値が、元テンプレートに掛ける縮小率です。
 
 ```powershell
-env\Scripts\python.exe experiments/opponent_color_mannequin/run.py
+env\Scripts\python.exe experiments/opponent_color_mannequin/run.py --config experiments/opponent_color_mannequin/config/default.yaml
 ```
 
 表示された枠は最小スコアの位置です。緑はしきい値以下（検出）、赤はしきい値超過（未検出）を表し、`q` キーで終了します。
