@@ -37,7 +37,17 @@ class ArtifactWriter:
         self.csv_file = (self.score_dir / "scores.csv").open("w", newline="", encoding="utf-8")
         self.csv_writer = csv.DictWriter(
             self.csv_file,
-            fieldnames=("frame", "stage", "roi", "template_scale", "x", "y", "score", "selected"),
+            fieldnames=(
+                "frame",
+                "stage",
+                "roi",
+                "template_scale",
+                "x",
+                "y",
+                "score",
+                "variance_distance",
+                "selected",
+            ),
         )
         self.csv_writer.writeheader()
 
@@ -86,6 +96,7 @@ class ArtifactWriter:
                     "x": candidate.x,
                     "y": candidate.y,
                     "score": candidate.score,
+                    "variance_distance": "",
                     "selected": True,
                 }
             )
@@ -128,6 +139,7 @@ class ArtifactWriter:
                     "x": detail.x,
                     "y": detail.y,
                     "score": detail.score,
+                    "variance_distance": detail.variance_distance,
                     "selected": selected,
                 }
             )
@@ -140,21 +152,33 @@ class ArtifactWriter:
                     "x": detail.x,
                     "y": detail.y,
                     "score": detail.score,
+                    "variance_distance": detail.variance_distance,
                     "selected": selected,
                 }
             )
 
         best_image = original_bgr.copy()
         best = result.best_match
-        _draw_box(
-            best_image,
-            best.x,
-            best.y,
-            best.template.width,
-            best.template.height,
-            (0, 255, 0) if result.detected else (0, 0, 255),
-            f"{'MANNEQUIN' if result.detected else 'NO MATCH'} score={best.score:.2f}",
-        )
+        if best is None:
+            _draw_box(
+                best_image,
+                0,
+                0,
+                0,
+                0,
+                (0, 0, 255),
+                "NO DETAIL MATCH: variance filter rejected all candidates",
+            )
+        else:
+            _draw_box(
+                best_image,
+                best.x,
+                best.y,
+                best.template.width,
+                best.template.height,
+                (0, 255, 0) if result.detected else (0, 0, 255),
+                f"{'MANNEQUIN' if result.detected else 'NO MATCH'} score={best.score:.2f}",
+            )
         _write_image(self.detail_dir / f"{frame_id}_best.png", best_image)
         self.csv_file.flush()
 
@@ -167,7 +191,11 @@ class ArtifactWriter:
                 for roi in result.rois
             ],
             "detail_matches": detail_records,
-            "best_match": detail_records[[detail is result.best_match for detail in result.detail_matches].index(True)],
+            "best_match": (
+                detail_records[[detail is result.best_match for detail in result.detail_matches].index(True)]
+                if result.best_match is not None
+                else None
+            ),
         }
         (self.score_dir / f"{frame_id}.json").write_text(
             json.dumps(score_json, ensure_ascii=False, indent=2), encoding="utf-8"

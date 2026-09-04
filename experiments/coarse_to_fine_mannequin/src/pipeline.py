@@ -20,6 +20,7 @@ class Template:
     image_bgr: np.ndarray
     features: torch.Tensor
     weights: torch.Tensor
+    feature_variance: torch.Tensor
 
     @property
     def height(self) -> int:
@@ -61,6 +62,7 @@ class DetailMatch:
     x: int
     y: int
     score: float
+    variance_distance: float
 
 
 @dataclass(frozen=True)
@@ -71,7 +73,7 @@ class FrameResult:
     coarse_candidates: list[Candidate]
     rois: list[Roi]
     detail_matches: list[DetailMatch]
-    best_match: DetailMatch
+    best_match: DetailMatch | None
     detected: bool
 
 
@@ -95,6 +97,9 @@ class CoarseToFineMatcher:
         final_max_error: float = 30.0,
         brightness_weights: Sequence[float] = (0.299, 0.587, 0.114),
         channel_weights: Sequence[float] = (0.5, 0.5, 1.0),
+        variance_channel_weights: Sequence[float] = (1.0, 1.0, 1.0),
+        variance_log_distance_max: float = 3.0,
+        variance_epsilon: float = 1.0,
         min_weight: float = 0.05,
     ) -> None:
         if not 0.0 < frame_downscale < 1.0:
@@ -103,6 +108,8 @@ class CoarseToFineMatcher:
             raise ValueError("strides must be positive")
         if coarse_top_k <= 0 or coarse_candidates_per_template <= 0:
             raise ValueError("candidate counts must be positive")
+        if variance_log_distance_max < 0 or variance_epsilon <= 0:
+            raise ValueError("variance thresholds must be positive")
 
         self.device = torch.device(device)
         if self.device.type == "cuda" and not torch.cuda.is_available():
@@ -118,6 +125,11 @@ class CoarseToFineMatcher:
         self.min_weight = min_weight
         self.brightness_weights = _normalise_weights(brightness_weights, self.device)
         self.channel_weights = _normalise_channel_weights(channel_weights, self.device)
+        self.variance_channel_weights = _normalise_channel_weights(
+            variance_channel_weights, self.device
+        )
+        self.variance_log_distance_max = variance_log_distance_max
+        self.variance_epsilon = variance_epsilon
 
         self.coarse_templates = self._create_templates(template_bgr, coarse_template_scales, "coarse")
         self.detail_templates = self._create_templates(template_bgr, detail_template_scales, "detail")
@@ -142,7 +154,10 @@ class CoarseToFineMatcher:
             tensor = _to_gpu_bgr(image, self.device)
             features = _bgr_to_features(tensor, self.brightness_weights)
             weights = _center_weight(height, width, self.min_weight, self.device)
-            templates.append(Template(f"{prefix}_{scale:.3f}", scale, image, features, weights))
+            feature_variance = features.var(dim=(0, 1), correction=0)
+            templates.append(
+                Template(f"{prefix}_{scale:.3f}", scale, image, features, weights, feature_variance)
+            )
         return templates
 
     def process(self, frame_bgr: np.ndarray) -> FrameResult:
@@ -161,16 +176,14 @@ class CoarseToFineMatcher:
             coarse_candidates = self._find_coarse_candidates(coarse_features)
             rois = self._make_rois(coarse_candidates, frame_bgr.shape[:2])
             detail_matches = self._find_detail_matches(original_features, rois)
-            if not detail_matches:
-                raise ValueError("no detail template fits inside the candidate ROIs")
-            best_match = min(detail_matches, key=lambda item: item.score)
+            best_match = min(detail_matches, key=lambda item: item.score) if detail_matches else None
             return FrameResult(
                 coarse_image_bgr=coarse_image_bgr,
                 coarse_candidates=coarse_candidates,
                 rois=rois,
                 detail_matches=detail_matches,
                 best_match=best_match,
-                detected=best_match.score <= self.final_max_error,
+                detected=best_match is not None and best_match.score <= self.final_max_error,
             )
 
     def _find_coarse_candidates(self, coarse_features: torch.Tensor) -> list[Candidate]:
@@ -178,15 +191,15 @@ class CoarseToFineMatcher:
         for template in self.coarse_templates:
             if template.height > coarse_features.shape[0] or template.width > coarse_features.shape[1]:
                 continue
-            scores, x_positions, y_positions = _score_map(
+            score_map = _score_map(
                 coarse_features, template, self.coarse_stride, self.channel_weights
             )
-            count = min(self.coarse_candidates_per_template, scores.numel())
-            values, indices = torch.topk(scores.flatten(), k=count, largest=False)
+            count = min(self.coarse_candidates_per_template, score_map.scores.numel())
+            values, indices = torch.topk(score_map.scores.flatten(), k=count, largest=False)
             for value, index in zip(values, indices):
                 flat_index = int(index.item())
-                x = x_positions[flat_index % len(x_positions)]
-                y = y_positions[flat_index // len(x_positions)]
+                x = score_map.x_positions[flat_index % len(score_map.x_positions)]
+                y = score_map.y_positions[flat_index // len(score_map.x_positions)]
                 all_candidates.append(Candidate(template, x, y, float(value.item())))
 
         all_candidates.sort(key=lambda item: item.score)
@@ -240,19 +253,28 @@ class CoarseToFineMatcher:
             for template in self.detail_templates:
                 if template.height > roi.height or template.width > roi.width:
                     continue
-                scores, x_positions, y_positions = _score_map(
-                    roi_features, template, self.detail_stride, self.channel_weights
+                score_map = _score_map(
+                    roi_features,
+                    template,
+                    self.detail_stride,
+                    self.channel_weights,
+                    variance_channel_weights=self.variance_channel_weights,
+                    variance_log_distance_max=self.variance_log_distance_max,
+                    variance_epsilon=self.variance_epsilon,
                 )
-                best_index = int(torch.argmin(scores).item())
-                local_x = x_positions[best_index % len(x_positions)]
-                local_y = y_positions[best_index // len(x_positions)]
+                if not torch.any(score_map.variance_passes):
+                    continue
+                best_index = int(torch.argmin(score_map.scores).item())
+                local_x = score_map.x_positions[best_index % len(score_map.x_positions)]
+                local_y = score_map.y_positions[best_index // len(score_map.x_positions)]
                 matches.append(
                     DetailMatch(
                         roi,
                         template,
                         roi.x + local_x,
                         roi.y + local_y,
-                        float(scores.flatten()[best_index].item()),
+                        float(score_map.scores.flatten()[best_index].item()),
+                        float(score_map.variance_distances.flatten()[best_index].item()),
                     )
                 )
         return matches
@@ -305,13 +327,28 @@ def _scan_positions(maximum: int, stride: int) -> list[int]:
     return positions
 
 
+@dataclass(frozen=True)
+class ScoreMap:
+    """全配置の色差スコアと、詳細照合時の分散選別結果。"""
+
+    scores: torch.Tensor
+    x_positions: list[int]
+    y_positions: list[int]
+    variance_distances: torch.Tensor | None = None
+    variance_passes: torch.Tensor | None = None
+
+
 def _score_map(
     frame_features: torch.Tensor,
     template: Template,
     stride: int,
     channel_weights: torch.Tensor,
-) -> tuple[torch.Tensor, list[int], list[int]]:
-    """1テンプレートについて全配置候補の重み付き色差をGPUで求める。"""
+    *,
+    variance_channel_weights: torch.Tensor | None = None,
+    variance_log_distance_max: float | None = None,
+    variance_epsilon: float = 1.0,
+) -> ScoreMap:
+    """全配置候補の色差をGPUで求め、指定時は分散の近い候補だけを残す。"""
     x_positions = _scan_positions(frame_features.shape[1] - template.width, stride)
     y_positions = _scan_positions(frame_features.shape[0] - template.height, stride)
     candidates = torch.stack(
@@ -321,7 +358,36 @@ def _score_map(
             for x in x_positions
         ]
     )
-    difference = template.features.unsqueeze(0) - candidates
-    pixel_error = torch.sqrt(torch.sum(difference.square() * channel_weights, dim=3))
-    scores = torch.sum(pixel_error * template.weights, dim=(1, 2)) / template.weights.sum()
-    return scores.reshape(len(y_positions), len(x_positions)), x_positions, y_positions
+    if variance_channel_weights is None:
+        difference = template.features.unsqueeze(0) - candidates
+        pixel_error = torch.sqrt(torch.sum(difference.square() * channel_weights, dim=3))
+        scores = torch.sum(pixel_error * template.weights, dim=(1, 2)) / template.weights.sum()
+        return ScoreMap(scores.reshape(len(y_positions), len(x_positions)), x_positions, y_positions)
+
+    candidate_variance = candidates.var(dim=(1, 2), correction=0)
+    variance_distances = torch.sum(
+        torch.abs(
+            torch.log(candidate_variance + variance_epsilon)
+            - torch.log(template.feature_variance + variance_epsilon)
+        )
+        * variance_channel_weights,
+        dim=1,
+    )
+    variance_passes = variance_distances <= variance_log_distance_max
+    scores = torch.full(
+        (candidates.shape[0],), float("inf"), dtype=torch.float32, device=candidates.device
+    )
+    if torch.any(variance_passes):
+        valid_candidates = candidates[variance_passes]
+        difference = template.features.unsqueeze(0) - valid_candidates
+        pixel_error = torch.sqrt(torch.sum(difference.square() * channel_weights, dim=3))
+        scores[variance_passes] = (
+            torch.sum(pixel_error * template.weights, dim=(1, 2)) / template.weights.sum()
+        )
+    return ScoreMap(
+        scores.reshape(len(y_positions), len(x_positions)),
+        x_positions,
+        y_positions,
+        variance_distances.reshape(len(y_positions), len(x_positions)),
+        variance_passes.reshape(len(y_positions), len(x_positions)),
+    )

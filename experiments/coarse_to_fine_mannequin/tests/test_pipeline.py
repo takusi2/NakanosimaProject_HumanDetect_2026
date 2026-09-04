@@ -29,10 +29,34 @@ class CoarseToFineMatcherTests(unittest.TestCase):
 
         result = matcher.process(frame)
 
+        self.assertIsNotNone(result.best_match)
         self.assertEqual((result.best_match.x, result.best_match.y), (48, 40))
         self.assertTrue(result.detected)
         self.assertEqual(result.coarse_image_bgr.shape[:2], (20, 24))
         self.assertEqual(len(result.rois), 1)
+
+    def test_rejects_uniform_wall_by_variance(self) -> None:
+        rng = np.random.default_rng(456)
+        template = rng.integers(0, 256, size=(16, 12, 3), dtype=np.uint8)
+        wall_frame = np.full((80, 96, 3), 230, dtype=np.uint8)
+        matcher = CoarseToFineMatcher(
+            template,
+            device="cpu",
+            frame_downscale=0.25,
+            coarse_template_scales=[0.25],
+            detail_template_scales=[1.0],
+            coarse_stride=1,
+            detail_stride=1,
+            coarse_top_k=1,
+            nms_distance_original_px=10,
+            roi_margin_px=8,
+            variance_log_distance_max=3.0,
+        )
+
+        result = matcher.process(wall_frame)
+
+        self.assertFalse(result.detected)
+        self.assertIsNone(result.best_match)
 
 
 if __name__ == "__main__":

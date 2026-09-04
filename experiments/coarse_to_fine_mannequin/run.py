@@ -51,6 +51,9 @@ def main() -> None:
         final_max_error=float(config.get("final_max_error", 27.0)),
         brightness_weights=tuple(config.get("brightness_weights", {}).get(k, d) for k, d in (("r", 0.299), ("g", 0.587), ("b", 0.114))),
         channel_weights=tuple(config.get("channel_weights", {}).get(k, d) for k, d in (("rg", 0.5), ("by", 0.5), ("y", 1.0))),
+        variance_channel_weights=tuple(config.get("variance_channel_weights", {}).get(k, d) for k, d in (("rg", 1.0), ("by", 1.0), ("y", 1.0))),
+        variance_log_distance_max=float(config.get("variance_log_distance_max", 3.0)),
+        variance_epsilon=float(config.get("variance_epsilon", 1.0)),
         min_weight=float(config.get("min_weight", 0.05)),
     )
 
@@ -105,19 +108,25 @@ def main() -> None:
                     scale_y = display_height / frame.shape[0]
                 best = result.best_match
                 colour = (0, 255, 0) if result.detected else (0, 0, 255)
-                cv2.rectangle(
-                    display,
-                    (round(best.x * scale_x), round(best.y * scale_y)),
-                    (
-                        round((best.x + best.template.width) * scale_x),
-                        round((best.y + best.template.height) * scale_y),
-                    ),
-                    colour,
-                    max(1, round(2 * min(scale_x, scale_y))),
+                if best is not None:
+                    cv2.rectangle(
+                        display,
+                        (round(best.x * scale_x), round(best.y * scale_y)),
+                        (
+                            round((best.x + best.template.width) * scale_x),
+                            round((best.y + best.template.height) * scale_y),
+                        ),
+                        colour,
+                        max(1, round(2 * min(scale_x, scale_y))),
+                    )
+                score_text = (
+                    f"score={best.score:.2f} var={best.variance_distance:.2f}"
+                    if best is not None
+                    else "all detail candidates rejected by variance"
                 )
                 cv2.putText(
                     display,
-                    f"{'MANNEQUIN' if result.detected else 'NO MATCH'} score={best.score:.2f}",
+                    f"{'MANNEQUIN' if result.detected else 'NO MATCH'} {score_text}",
                     # スコア文字は映像倍率に連動させず、表示領域を占有しない。
                     (8, 28),
                     cv2.FONT_HERSHEY_SIMPLEX,
