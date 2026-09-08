@@ -10,7 +10,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .pipeline import FrameResult, Template
+from .pipeline import DetailVarianceFilter, FrameResult, Template
 
 
 class ArtifactWriter:
@@ -114,24 +114,58 @@ class ArtifactWriter:
             )
         _write_image(self.roi_dir / f"{frame_id}_rois.png", roi_image)
 
+        variance_filter_records = []
+        for variance_filter in result.detail_variance_filters:
+            roi_image = original_bgr[
+                variance_filter.roi.y : variance_filter.roi.y + variance_filter.roi.height,
+                variance_filter.roi.x : variance_filter.roi.x + variance_filter.roi.width,
+            ].copy()
+            filter_image = _draw_variance_rejections(roi_image, variance_filter)
+            suffix = (
+                f"roi_{variance_filter.roi.index}_scale_{variance_filter.template.scale:.3f}"
+            )
+            _write_image(self.detail_dir / f"{frame_id}_{suffix}_variance_filter.png", filter_image)
+            variance_filter_records.append(
+                {
+                    "roi": variance_filter.roi.index,
+                    "scale": variance_filter.template.scale,
+                    "candidates_total": variance_filter.candidate_count,
+                    "candidates_passed": variance_filter.passed_count,
+                    "candidates_rejected": variance_filter.rejected_count,
+                }
+            )
+
         detail_records = []
         for detail in result.detail_matches:
             roi_image = original_bgr[
                 detail.roi.y : detail.roi.y + detail.roi.height,
                 detail.roi.x : detail.roi.x + detail.roi.width,
             ].copy()
+            is_best = detail is result.best_match
+            if is_best and result.detected:
+                colour = (0, 255, 0)
+                label = f"MATCH score={detail.score:.2f} scale={detail.template.scale:.3f}"
+            elif is_best:
+                colour = (0, 0, 255)
+                label = (
+                    f"CLOSEST REJECTED score={detail.score:.2f} "
+                    f"scale={detail.template.scale:.3f}"
+                )
+            else:
+                colour = (0, 255, 255)
+                label = f"DETAIL CANDIDATE score={detail.score:.2f} scale={detail.template.scale:.3f}"
             _draw_box(
                 roi_image,
                 detail.x - detail.roi.x,
                 detail.y - detail.roi.y,
                 detail.template.width,
                 detail.template.height,
-                (0, 255, 0),
-                f"score={detail.score:.2f} scale={detail.template.scale:.3f}",
+                colour,
+                label,
             )
             suffix = f"roi_{detail.roi.index}_scale_{detail.template.scale:.3f}"
             _write_image(self.detail_dir / f"{frame_id}_{suffix}.png", roi_image)
-            selected = detail is result.best_match
+            selected = is_best
             detail_records.append(
                 {
                     "roi": detail.roi.index,
@@ -191,6 +225,7 @@ class ArtifactWriter:
                 for roi in result.rois
             ],
             "detail_matches": detail_records,
+            "variance_filters": variance_filter_records,
             "best_match": (
                 detail_records[[detail is result.best_match for detail in result.detail_matches].index(True)]
                 if result.best_match is not None
@@ -208,6 +243,31 @@ def _draw_box(
     cv2.rectangle(image, (x, y), (x + width, y + height), colour, 2)
     cv2.rectangle(image, (0, 0), (min(image.shape[1], 500), 26), (0, 0, 0), -1)
     cv2.putText(image, label, (5, 19), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1, cv2.LINE_AA)
+
+
+def _draw_variance_rejections(image: np.ndarray, variance_filter: DetailVarianceFilter) -> np.ndarray:
+    """分散フィルタで除外された候補領域全体をオレンジ枠で示す。"""
+    rejected_y_indices, rejected_x_indices = np.where(~variance_filter.variance_passes)
+    result = image.copy()
+    for y_index, x_index in zip(rejected_y_indices, rejected_x_indices):
+        x = variance_filter.x_positions[x_index]
+        y = variance_filter.y_positions[y_index]
+        cv2.rectangle(
+            result,
+            (x, y),
+            (
+                min(image.shape[1] - 1, x + variance_filter.template.width - 1),
+                min(image.shape[0] - 1, y + variance_filter.template.height - 1),
+            ),
+            (0, 165, 255),
+            1,
+        )
+    label = (
+        "VARIANCE REJECTED (orange candidate boxes): "
+        f"{variance_filter.rejected_count}/{variance_filter.candidate_count}"
+    )
+    _draw_box(result, 0, 0, 0, 0, (0, 165, 255), label)
+    return result
 
 
 def _write_image(path: Path, image: np.ndarray) -> None:

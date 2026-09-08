@@ -66,6 +66,29 @@ class DetailMatch:
 
 
 @dataclass(frozen=True)
+class DetailVarianceFilter:
+    """ROI・テンプレートごとの分散フィルタ判定。座標はROI内の左上位置。"""
+
+    roi: Roi
+    template: Template
+    x_positions: list[int]
+    y_positions: list[int]
+    variance_passes: np.ndarray
+
+    @property
+    def candidate_count(self) -> int:
+        return int(self.variance_passes.size)
+
+    @property
+    def passed_count(self) -> int:
+        return int(np.count_nonzero(self.variance_passes))
+
+    @property
+    def rejected_count(self) -> int:
+        return self.candidate_count - self.passed_count
+
+
+@dataclass(frozen=True)
 class FrameResult:
     """1フレームの粗探索・詳細照合の全結果。"""
 
@@ -73,6 +96,7 @@ class FrameResult:
     coarse_candidates: list[Candidate]
     rois: list[Roi]
     detail_matches: list[DetailMatch]
+    detail_variance_filters: list[DetailVarianceFilter]
     best_match: DetailMatch | None
     detected: bool
 
@@ -175,13 +199,16 @@ class CoarseToFineMatcher:
 
             coarse_candidates = self._find_coarse_candidates(coarse_features)
             rois = self._make_rois(coarse_candidates, frame_bgr.shape[:2])
-            detail_matches = self._find_detail_matches(original_features, rois)
+            detail_matches, detail_variance_filters = self._find_detail_matches(
+                original_features, rois
+            )
             best_match = min(detail_matches, key=lambda item: item.score) if detail_matches else None
             return FrameResult(
                 coarse_image_bgr=coarse_image_bgr,
                 coarse_candidates=coarse_candidates,
                 rois=rois,
                 detail_matches=detail_matches,
+                detail_variance_filters=detail_variance_filters,
                 best_match=best_match,
                 detected=best_match is not None and best_match.score <= self.final_max_error,
             )
@@ -246,8 +273,9 @@ class CoarseToFineMatcher:
 
     def _find_detail_matches(
         self, original_features: torch.Tensor, rois: list[Roi]
-    ) -> list[DetailMatch]:
+    ) -> tuple[list[DetailMatch], list[DetailVarianceFilter]]:
         matches: list[DetailMatch] = []
+        variance_filters: list[DetailVarianceFilter] = []
         for roi in rois:
             roi_features = original_features[roi.y : roi.y + roi.height, roi.x : roi.x + roi.width]
             for template in self.detail_templates:
@@ -261,6 +289,17 @@ class CoarseToFineMatcher:
                     variance_channel_weights=self.variance_channel_weights,
                     variance_log_distance_max=self.variance_log_distance_max,
                     variance_epsilon=self.variance_epsilon,
+                )
+                if score_map.variance_passes is None:
+                    raise RuntimeError("detail score map must include variance filter results")
+                variance_filters.append(
+                    DetailVarianceFilter(
+                        roi=roi,
+                        template=template,
+                        x_positions=score_map.x_positions,
+                        y_positions=score_map.y_positions,
+                        variance_passes=score_map.variance_passes.detach().cpu().numpy(),
+                    )
                 )
                 if not torch.any(score_map.variance_passes):
                     continue
@@ -277,7 +316,7 @@ class CoarseToFineMatcher:
                         float(score_map.variance_distances.flatten()[best_index].item()),
                     )
                 )
-        return matches
+        return matches, variance_filters
 
 
 def _to_gpu_bgr(image_bgr: np.ndarray, device: torch.device) -> torch.Tensor:
