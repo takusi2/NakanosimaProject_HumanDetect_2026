@@ -13,7 +13,10 @@ import yaml
 EXPERIMENT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(EXPERIMENT_DIR.parents[1]))
 
-from experiments.coarse_to_fine_mannequin.src.artifacts import ArtifactWriter  # noqa: E402
+from experiments.coarse_to_fine_mannequin.src.artifacts import (  # noqa: E402
+    AnnotatedVideoWriter,
+    ArtifactWriter,
+)
 from experiments.coarse_to_fine_mannequin.src.pipeline import CoarseToFineMatcher  # noqa: E402
 
 
@@ -72,6 +75,7 @@ def main() -> None:
         raise RuntimeError(f"cannot open {source} input")
 
     save_every_n_frames = int(config.get("save_every_n_frames", 1))
+    save_annotated_video = bool(config.get("save_annotated_video", True))
     max_frames = config.get("max_frames")
     show_window = bool(config.get("show_window", True))
     display_width = config.get("display_width")
@@ -84,6 +88,7 @@ def main() -> None:
         if display_width <= 0 or display_height <= 0:
             raise ValueError("display_width and display_height must be positive")
     frame_number = 0
+    annotated_video_writer: AnnotatedVideoWriter | None = None
     try:
         while True:
             ok, frame = capture.read()
@@ -91,6 +96,16 @@ def main() -> None:
                 break
             frame_number += 1
             result = matcher.process(frame)
+
+            if save_annotated_video:
+                if annotated_video_writer is None:
+                    annotated_video_writer = AnnotatedVideoWriter(
+                        writer.run_dir,
+                        capture.get(cv2.CAP_PROP_FPS),
+                        frame.shape[1],
+                        frame.shape[0],
+                    )
+                annotated_video_writer.write(frame_number, frame, result)
 
             if frame_number % save_every_n_frames == 0:
                 writer.save_frame(frame_number, frame, result)
@@ -142,10 +157,14 @@ def main() -> None:
                 break
     finally:
         capture.release()
+        if annotated_video_writer is not None:
+            annotated_video_writer.close()
         writer.close()
         cv2.destroyAllWindows()
 
     print(f"saved_results={writer.run_dir}")
+    if annotated_video_writer is not None:
+        print(f"saved_annotated_video={annotated_video_writer.path}")
 
 
 if __name__ == "__main__":

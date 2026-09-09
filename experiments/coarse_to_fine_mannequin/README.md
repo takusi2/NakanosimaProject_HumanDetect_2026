@@ -30,7 +30,10 @@
 - `04_coarse_rois_original/`: 元解像度へ戻した粗探索ROI
 - `05_detail_match/`: ROI・テンプレート倍率ごとの詳細照合結果、分散フィルタで除外された探索位置、最終結果
 - `06_scores/`: 全粗探索・詳細照合スコアのCSVとフレームごとのJSON
+- `07_annotated_video/coarse_rois_and_best_match.mp4`: 元動画に青の粗探索ROIと、最小誤差候補を重ねた動画
 
 `save_every_n_frames: 1` は全フレームを保存します。容量を抑えたい場合は、値を大きくしてください。
 
 分散フィルタ画像のファイル名末尾は `_variance_filter.png` です。オレンジの枠は、ROI内で分散閾値を超えて詳細な色差照合から除外された候補領域全体を表します。候補枠は重なって表示されます。詳細照合の枠色は、最終 `MATCH` が緑、最小誤差だが閾値を超えて `NO MATCH` の候補が赤、他の詳細候補が黄です。
+
+検証動画では、ROIを青、最小誤差候補を最終 `MATCH` 時は緑、`NO MATCH` 時は赤で表示します。動画は全処理フレームを保存し、`save_every_n_frames` の画像保存間隔には影響されません。保存を止める場合は、設定に `save_annotated_video: false` を指定してください。

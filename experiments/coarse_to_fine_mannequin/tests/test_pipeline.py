@@ -5,10 +5,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
+import cv2
 import numpy as np
 
 from experiments.coarse_to_fine_mannequin.src.pipeline import CoarseToFineMatcher
-from experiments.coarse_to_fine_mannequin.src.artifacts import ArtifactWriter
+from experiments.coarse_to_fine_mannequin.src.artifacts import AnnotatedVideoWriter, ArtifactWriter
 
 
 class CoarseToFineMatcherTests(unittest.TestCase):
@@ -101,6 +102,44 @@ class CoarseToFineMatcherTests(unittest.TestCase):
             )
             self.assertEqual(score_data["variance_filters"][0]["candidates_passed"], 0)
             self.assertGreater(score_data["variance_filters"][0]["candidates_rejected"], 0)
+
+    def test_saves_annotated_video_with_rois_and_best_match(self) -> None:
+        rng = np.random.default_rng(987)
+        template = rng.integers(0, 256, size=(16, 12, 3), dtype=np.uint8)
+        frame = np.zeros((80, 96, 3), dtype=np.uint8)
+        frame[40:56, 48:60] = template
+        matcher = CoarseToFineMatcher(
+            template,
+            device="cpu",
+            frame_downscale=0.25,
+            coarse_template_scales=[0.25],
+            detail_template_scales=[1.0],
+            coarse_stride=1,
+            detail_stride=1,
+            coarse_top_k=1,
+            nms_distance_original_px=10,
+            roi_margin_px=8,
+            final_max_error=0.1,
+        )
+        result = matcher.process(frame)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            video_writer = AnnotatedVideoWriter(
+                Path(temporary_directory), fps=30.0, frame_width=96, frame_height=80
+            )
+            video_writer.write(1, frame, result)
+            video_path = video_writer.path
+            video_writer.close()
+
+            self.assertGreater(video_path.stat().st_size, 0)
+            capture = cv2.VideoCapture(str(video_path))
+            try:
+                self.assertTrue(capture.isOpened())
+                ok, saved_frame = capture.read()
+                self.assertTrue(ok)
+                self.assertEqual(saved_frame.shape[:2], (80, 96))
+            finally:
+                capture.release()
 
 
 if __name__ == "__main__":

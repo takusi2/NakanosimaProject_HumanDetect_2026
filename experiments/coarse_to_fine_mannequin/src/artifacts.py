@@ -270,6 +270,94 @@ def _draw_variance_rejections(image: np.ndarray, variance_filter: DetailVariance
     return result
 
 
+class AnnotatedVideoWriter:
+    """粗探索ROIと最終候補を重ねた検証動画を書き出す。"""
+
+    def __init__(self, run_dir: Path, fps: float, frame_width: int, frame_height: int) -> None:
+        if frame_width <= 0 or frame_height <= 0:
+            raise ValueError("annotated video frame dimensions must be positive")
+        self.video_dir = run_dir / "07_annotated_video"
+        self.video_dir.mkdir(parents=True, exist_ok=True)
+        self.path = self.video_dir / "coarse_rois_and_best_match.mp4"
+        fps = fps if fps > 0 else 30.0
+        self.writer = cv2.VideoWriter(
+            str(self.path),
+            cv2.VideoWriter_fourcc(*"mp4v"),
+            fps,
+            (frame_width, frame_height),
+        )
+        if not self.writer.isOpened():
+            raise RuntimeError(f"cannot open annotated video for writing: {self.path}")
+
+    def write(self, frame_number: int, original_bgr: np.ndarray, result: FrameResult) -> None:
+        self.writer.write(draw_annotated_frame(frame_number, original_bgr, result))
+
+    def close(self) -> None:
+        self.writer.release()
+
+
+def draw_annotated_frame(
+    frame_number: int, original_bgr: np.ndarray, result: FrameResult
+) -> np.ndarray:
+    """元フレームに粗探索ROIと、最終的に最小誤差となった候補を重ねる。"""
+    image = original_bgr.copy()
+    for roi in result.rois:
+        cv2.rectangle(
+            image,
+            (roi.x, roi.y),
+            (roi.x + roi.width, roi.y + roi.height),
+            (255, 0, 0),
+            1,
+        )
+        cv2.putText(
+            image,
+            f"ROI {roi.index}",
+            (roi.x + 2, min(image.shape[0] - 4, roi.y + 14)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.4,
+            (255, 0, 0),
+            1,
+            cv2.LINE_AA,
+        )
+
+    best = result.best_match
+    if best is None:
+        status = f"F{frame_number} NO: variance rejected"
+        colour = (0, 0, 255)
+    else:
+        colour = (0, 255, 0) if result.detected else (0, 0, 255)
+        status = (
+            f"F{frame_number} {'MATCH' if result.detected else 'NO'} "
+            f"{best.score:.2f} x{best.template.scale:.2f}"
+        )
+        cv2.rectangle(
+            image,
+            (best.x, best.y),
+            (best.x + best.template.width, best.y + best.template.height),
+            colour,
+            2,
+        )
+
+    font_scale = 0.32
+    (text_width, text_height), baseline = cv2.getTextSize(
+        status, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1
+    )
+    banner_width = min(image.shape[1], text_width + 8)
+    banner_height = min(image.shape[0], text_height + baseline + 6)
+    cv2.rectangle(image, (0, 0), (banner_width, banner_height), (0, 0, 0), -1)
+    cv2.putText(
+        image,
+        status,
+        (4, text_height + 3),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        font_scale,
+        colour,
+        1,
+        cv2.LINE_AA,
+    )
+    return image
+
+
 def _write_image(path: Path, image: np.ndarray) -> None:
     ok, encoded = cv2.imencode(path.suffix, image)
     if not ok:
