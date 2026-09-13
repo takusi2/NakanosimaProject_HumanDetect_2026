@@ -16,8 +16,8 @@ PAYLOAD = IMG_W * IMG_H  # 19200
 
 # 出力動画設定
 OUTPUT_DIR = "./output/"
-OUTPUT_W = 640
-OUTPUT_H = 480
+OUTPUT_W = 160
+OUTPUT_H = 120
 OUTPUT_FPS = 110
 
 # ============================================================
