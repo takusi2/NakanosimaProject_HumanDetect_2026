@@ -25,7 +25,8 @@ class CoarseToFineMatcherTests(unittest.TestCase):
             coarse_template_scales=[0.25],
             detail_template_scales=[1.0],
             coarse_stride=1,
-            detail_stride=1,
+            detail_stride_base=1,
+            detail_stride_min=1,
             coarse_top_k=1,
             nms_distance_original_px=10,
             roi_margin_px=8,
@@ -51,7 +52,8 @@ class CoarseToFineMatcherTests(unittest.TestCase):
             coarse_template_scales=[0.25],
             detail_template_scales=[1.0],
             coarse_stride=1,
-            detail_stride=1,
+            detail_stride_base=1,
+            detail_stride_min=1,
             coarse_top_k=1,
             nms_distance_original_px=10,
             roi_margin_px=8,
@@ -78,7 +80,8 @@ class CoarseToFineMatcherTests(unittest.TestCase):
             coarse_template_scales=[0.25],
             detail_template_scales=[1.0],
             coarse_stride=1,
-            detail_stride=1,
+            detail_stride_base=1,
+            detail_stride_min=1,
             coarse_top_k=1,
             nms_distance_original_px=10,
             roi_margin_px=8,
@@ -115,7 +118,8 @@ class CoarseToFineMatcherTests(unittest.TestCase):
             coarse_template_scales=[0.25],
             detail_template_scales=[1.0],
             coarse_stride=1,
-            detail_stride=1,
+            detail_stride_base=1,
+            detail_stride_min=1,
             coarse_top_k=1,
             nms_distance_original_px=10,
             roi_margin_px=8,
@@ -140,6 +144,21 @@ class CoarseToFineMatcherTests(unittest.TestCase):
                 self.assertEqual(saved_frame.shape[:2], (80, 96))
             finally:
                 capture.release()
+
+    def test_uses_smaller_stride_for_smaller_detail_template(self) -> None:
+        template = np.full((20, 20, 3), 128, dtype=np.uint8)
+        matcher = CoarseToFineMatcher(
+            template,
+            device="cpu",
+            coarse_template_scales=[0.25],
+            detail_template_scales=[1.0, 0.9, 0.8, 0.7, 0.6],
+            detail_stride_base=4,
+            detail_stride_min=2,
+        )
+
+        strides = [matcher.detail_stride_for_scale(item.scale) for item in matcher.detail_templates]
+
+        self.assertEqual(strides, [4, 3, 3, 2, 2])
 
 
 if __name__ == "__main__":

@@ -63,6 +63,7 @@ class DetailMatch:
     y: int
     score: float
     variance_distance: float
+    stride: int
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,7 @@ class DetailVarianceFilter:
     x_positions: list[int]
     y_positions: list[int]
     variance_passes: np.ndarray
+    stride: int
 
     @property
     def candidate_count(self) -> int:
@@ -113,7 +115,8 @@ class CoarseToFineMatcher:
         coarse_template_scales: Sequence[float] = (0.2,),
         detail_template_scales: Sequence[float] = (1.0, 0.8, 0.6, 0.4),
         coarse_stride: int = 2,
-        detail_stride: int = 4,
+        detail_stride_base: int = 4,
+        detail_stride_min: int = 2,
         coarse_top_k: int = 3,
         coarse_candidates_per_template: int = 20,
         nms_distance_original_px: int = 120,
@@ -128,8 +131,10 @@ class CoarseToFineMatcher:
     ) -> None:
         if not 0.0 < frame_downscale < 1.0:
             raise ValueError("frame_downscale must be in the range (0, 1)")
-        if coarse_stride <= 0 or detail_stride <= 0:
+        if coarse_stride <= 0 or detail_stride_base <= 0 or detail_stride_min <= 0:
             raise ValueError("strides must be positive")
+        if detail_stride_min > detail_stride_base:
+            raise ValueError("detail_stride_min must not exceed detail_stride_base")
         if coarse_top_k <= 0 or coarse_candidates_per_template <= 0:
             raise ValueError("candidate counts must be positive")
         if variance_log_distance_max < 0 or variance_epsilon <= 0:
@@ -140,7 +145,8 @@ class CoarseToFineMatcher:
             raise RuntimeError("CUDA is unavailable. Check the NVIDIA GPU and CUDA PyTorch installation.")
         self.frame_downscale = frame_downscale
         self.coarse_stride = coarse_stride
-        self.detail_stride = detail_stride
+        self.detail_stride_base = detail_stride_base
+        self.detail_stride_min = detail_stride_min
         self.coarse_top_k = coarse_top_k
         self.coarse_candidates_per_template = coarse_candidates_per_template
         self.nms_distance_original_px = nms_distance_original_px
@@ -159,6 +165,14 @@ class CoarseToFineMatcher:
         self.detail_templates = self._create_templates(template_bgr, detail_template_scales, "detail")
         if not self.coarse_templates or not self.detail_templates:
             raise ValueError("at least one coarse and one detail template are required")
+
+    def detail_stride_for_scale(self, scale: float) -> int:
+        """詳細テンプレート倍率に対応するstrideを返す。
+
+        小さなテンプレートほど細かく走査するため、
+        ``max(detail_stride_min, floor(detail_stride_base * scale))`` を使う。
+        """
+        return max(self.detail_stride_min, int(self.detail_stride_base * scale))
 
     def _create_templates(
         self, original_bgr: np.ndarray, scales: Sequence[float], prefix: str
@@ -281,10 +295,11 @@ class CoarseToFineMatcher:
             for template in self.detail_templates:
                 if template.height > roi.height or template.width > roi.width:
                     continue
+                stride = self.detail_stride_for_scale(template.scale)
                 score_map = _score_map(
                     roi_features,
                     template,
-                    self.detail_stride,
+                    stride,
                     self.channel_weights,
                     variance_channel_weights=self.variance_channel_weights,
                     variance_log_distance_max=self.variance_log_distance_max,
@@ -299,6 +314,7 @@ class CoarseToFineMatcher:
                         x_positions=score_map.x_positions,
                         y_positions=score_map.y_positions,
                         variance_passes=score_map.variance_passes.detach().cpu().numpy(),
+                        stride=stride,
                     )
                 )
                 if not torch.any(score_map.variance_passes):
@@ -314,6 +330,7 @@ class CoarseToFineMatcher:
                         roi.y + local_y,
                         float(score_map.scores.flatten()[best_index].item()),
                         float(score_map.variance_distances.flatten()[best_index].item()),
+                        stride,
                     )
                 )
         return matches, variance_filters

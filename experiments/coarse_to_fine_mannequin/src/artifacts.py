@@ -46,6 +46,7 @@ class ArtifactWriter:
                 "y",
                 "score",
                 "variance_distance",
+                "stride",
                 "selected",
             ),
         )
@@ -97,6 +98,7 @@ class ArtifactWriter:
                     "y": candidate.y,
                     "score": candidate.score,
                     "variance_distance": "",
+                    "stride": "",
                     "selected": True,
                 }
             )
@@ -132,6 +134,7 @@ class ArtifactWriter:
                     "candidates_total": variance_filter.candidate_count,
                     "candidates_passed": variance_filter.passed_count,
                     "candidates_rejected": variance_filter.rejected_count,
+                    "stride": variance_filter.stride,
                 }
             )
 
@@ -174,6 +177,7 @@ class ArtifactWriter:
                     "y": detail.y,
                     "score": detail.score,
                     "variance_distance": detail.variance_distance,
+                    "stride": detail.stride,
                     "selected": selected,
                 }
             )
@@ -187,6 +191,7 @@ class ArtifactWriter:
                     "y": detail.y,
                     "score": detail.score,
                     "variance_distance": detail.variance_distance,
+                    "stride": detail.stride,
                     "selected": selected,
                 }
             )

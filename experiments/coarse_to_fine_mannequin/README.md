@@ -12,6 +12,8 @@
 
 詳細照合では、テンプレートと候補領域の `RG`・`BY`・明度の局所分散も比較します。対数分散差が `variance_log_distance_max` を超える候補は、色差照合の対象から外れます。均一な白壁への誤検出を減らすための選別です。
 
+詳細探索のstrideはテンプレート倍率ごとに変えます。各倍率を `s` とすると、`max(detail_stride_min, floor(detail_stride_base × s))` です。標準設定の `detail_stride_base: 4`、`detail_stride_min: 2` では、`1.0 → 4`、`0.9 → 3`、`0.8 → 3`、`0.7以下 → 2` になります。小さなテンプレートは細かく探索して見逃しを抑え、大きなテンプレートは探索点を減らして処理時間を抑えます。旧設定の `detail_stride` だけがある設定ファイルも、`detail_stride_base` として読み込めます。
+
 ## 実行
 
 設定を [`config/default.yaml`](config/default.yaml) で調整してから、PowerShellで実行します。
@@ -29,7 +31,7 @@
 - `03_coarse_match/`: 縮小フレーム上の粗探索候補
 - `04_coarse_rois_original/`: 元解像度へ戻した粗探索ROI
 - `05_detail_match/`: ROI・テンプレート倍率ごとの詳細照合結果、分散フィルタで除外された探索位置、最終結果
-- `06_scores/`: 全粗探索・詳細照合スコアのCSVとフレームごとのJSON
+- `06_scores/`: 全粗探索・詳細照合スコアのCSVとフレームごとのJSON（詳細照合では実際に用いた `stride` も保存）
 - `07_annotated_video/coarse_rois_and_best_match.mp4`: 元動画に青の粗探索ROIと、最小誤差候補を重ねた動画
 
 `save_every_n_frames: 1` は全フレームを保存します。容量を抑えたい場合は、値を大きくしてください。
