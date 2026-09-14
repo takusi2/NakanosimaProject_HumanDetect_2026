@@ -134,6 +134,17 @@ class ArtifactWriter:
                     "candidates_total": variance_filter.candidate_count,
                     "candidates_passed": variance_filter.passed_count,
                     "candidates_rejected": variance_filter.rejected_count,
+                    "flatness_rejected": variance_filter.flatness_rejected_count,
+                    "relative_variance_rejected": (
+                        variance_filter.relative_variance_rejected_count
+                    ),
+                    "candidate_variance_mean": {
+                        "rg": float(variance_filter.candidate_variance_mean[0]),
+                        "by": float(variance_filter.candidate_variance_mean[1]),
+                        "brightness": float(variance_filter.candidate_variance_mean[2]),
+                    },
+                    "min_chroma_variance": variance_filter.min_chroma_variance,
+                    "min_brightness_variance": variance_filter.min_brightness_variance,
                     "stride": variance_filter.stride,
                 }
             )
@@ -251,27 +262,36 @@ def _draw_box(
 
 
 def _draw_variance_rejections(image: np.ndarray, variance_filter: DetailVarianceFilter) -> np.ndarray:
-    """分散フィルタで除外された候補領域全体をオレンジ枠で示す。"""
-    rejected_y_indices, rejected_x_indices = np.where(~variance_filter.variance_passes)
+    """平坦領域・相対分散差で除外された候補領域全体を色分けして示す。"""
     result = image.copy()
-    for y_index, x_index in zip(rejected_y_indices, rejected_x_indices):
-        x = variance_filter.x_positions[x_index]
-        y = variance_filter.y_positions[y_index]
-        cv2.rectangle(
-            result,
-            (x, y),
-            (
-                min(image.shape[1] - 1, x + variance_filter.template.width - 1),
-                min(image.shape[0] - 1, y + variance_filter.template.height - 1),
-            ),
-            (0, 165, 255),
-            1,
-        )
-    label = (
-        "VARIANCE REJECTED (orange candidate boxes): "
-        f"{variance_filter.rejected_count}/{variance_filter.candidate_count}"
+    flatness_rejected = ~variance_filter.flatness_passes
+    relative_rejected = (
+        variance_filter.flatness_passes & ~variance_filter.relative_variance_passes
     )
-    _draw_box(result, 0, 0, 0, 0, (0, 165, 255), label)
+    for rejection_mask, colour in (
+        (relative_rejected, (0, 165, 255)),  # orange
+        (flatness_rejected, (255, 0, 255)),  # magenta
+    ):
+        rejected_y_indices, rejected_x_indices = np.where(rejection_mask)
+        for y_index, x_index in zip(rejected_y_indices, rejected_x_indices):
+            x = variance_filter.x_positions[x_index]
+            y = variance_filter.y_positions[y_index]
+            cv2.rectangle(
+                result,
+                (x, y),
+                (
+                    min(image.shape[1] - 1, x + variance_filter.template.width - 1),
+                    min(image.shape[0] - 1, y + variance_filter.template.height - 1),
+                ),
+                colour,
+                1,
+            )
+    label = (
+        "FLAT magenta="
+        f"{variance_filter.flatness_rejected_count}, RELATIVE orange="
+        f"{variance_filter.relative_variance_rejected_count}"
+    )
+    _draw_box(result, 0, 0, 0, 0, (255, 0, 255), label)
     return result
 
 

@@ -69,6 +69,37 @@ class CoarseToFineMatcherTests(unittest.TestCase):
         self.assertEqual(variance_filter.passed_count, 0)
         self.assertEqual(variance_filter.rejected_count, variance_filter.candidate_count)
 
+    def test_rejects_uniform_wall_by_flatness_filter(self) -> None:
+        rng = np.random.default_rng(654)
+        template = rng.integers(0, 256, size=(16, 12, 3), dtype=np.uint8)
+        wall_frame = np.full((80, 96, 3), 230, dtype=np.uint8)
+        matcher = CoarseToFineMatcher(
+            template,
+            device="cpu",
+            frame_downscale=0.25,
+            coarse_template_scales=[0.25],
+            detail_template_scales=[1.0],
+            coarse_stride=1,
+            detail_stride_base=1,
+            detail_stride_min=1,
+            coarse_top_k=1,
+            nms_distance_original_px=10,
+            roi_margin_px=8,
+            # 相対分散差ではなく、絶対分散下限による除外だけを検証する。
+            variance_log_distance_max=100.0,
+            min_chroma_variance=1.0,
+            min_brightness_variance=1.0,
+        )
+
+        result = matcher.process(wall_frame)
+
+        self.assertIsNone(result.best_match)
+        variance_filter = result.detail_variance_filters[0]
+        self.assertEqual(
+            variance_filter.flatness_rejected_count, variance_filter.candidate_count
+        )
+        self.assertEqual(variance_filter.relative_variance_rejected_count, 0)
+
     def test_saves_variance_filter_visualisation(self) -> None:
         rng = np.random.default_rng(789)
         template = rng.integers(0, 256, size=(16, 12, 3), dtype=np.uint8)
@@ -103,8 +134,12 @@ class CoarseToFineMatcherTests(unittest.TestCase):
             score_data = json.loads(
                 (run_directory / "06_scores" / "frame_000001.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(score_data["variance_filters"][0]["candidates_passed"], 0)
-            self.assertGreater(score_data["variance_filters"][0]["candidates_rejected"], 0)
+            variance_data = score_data["variance_filters"][0]
+            self.assertEqual(variance_data["candidates_passed"], 0)
+            self.assertGreater(variance_data["candidates_rejected"], 0)
+            self.assertIn("flatness_rejected", variance_data)
+            self.assertIn("relative_variance_rejected", variance_data)
+            self.assertIn("candidate_variance_mean", variance_data)
 
     def test_saves_annotated_video_with_rois_and_best_match(self) -> None:
         rng = np.random.default_rng(987)

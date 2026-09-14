@@ -58,6 +58,8 @@ def main() -> None:
         variance_channel_weights=tuple(config.get("variance_channel_weights", {}).get(k, d) for k, d in (("rg", 1.0), ("by", 1.0), ("y", 1.0))),
         variance_log_distance_max=float(config.get("variance_log_distance_max", 3.0)),
         variance_epsilon=float(config.get("variance_epsilon", 1.0)),
+        min_chroma_variance=float(config.get("min_chroma_variance", 0.0)),
+        min_brightness_variance=float(config.get("min_brightness_variance", 0.0)),
         min_weight=float(config.get("min_weight", 0.05)),
     )
 

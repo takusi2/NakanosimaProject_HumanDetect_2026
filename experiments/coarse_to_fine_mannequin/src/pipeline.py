@@ -75,6 +75,11 @@ class DetailVarianceFilter:
     x_positions: list[int]
     y_positions: list[int]
     variance_passes: np.ndarray
+    flatness_passes: np.ndarray
+    relative_variance_passes: np.ndarray
+    candidate_variances: np.ndarray
+    min_chroma_variance: float
+    min_brightness_variance: float
     stride: int
 
     @property
@@ -88,6 +93,23 @@ class DetailVarianceFilter:
     @property
     def rejected_count(self) -> int:
         return self.candidate_count - self.passed_count
+
+    @property
+    def flatness_rejected_count(self) -> int:
+        """色・明度ともに変化の少ない平坦領域として除外した候補数。"""
+        return int(np.count_nonzero(~self.flatness_passes))
+
+    @property
+    def relative_variance_rejected_count(self) -> int:
+        """平坦ではないが、参照との相対分散差で除外した候補数。"""
+        return int(
+            np.count_nonzero(self.flatness_passes & ~self.relative_variance_passes)
+        )
+
+    @property
+    def candidate_variance_mean(self) -> np.ndarray:
+        """候補全体におけるRG/BY/Brightness分散の平均。"""
+        return self.candidate_variances.mean(axis=(0, 1))
 
 
 @dataclass(frozen=True)
@@ -127,6 +149,8 @@ class CoarseToFineMatcher:
         variance_channel_weights: Sequence[float] = (1.0, 1.0, 1.0),
         variance_log_distance_max: float = 3.0,
         variance_epsilon: float = 1.0,
+        min_chroma_variance: float = 0.0,
+        min_brightness_variance: float = 0.0,
         min_weight: float = 0.05,
     ) -> None:
         if not 0.0 < frame_downscale < 1.0:
@@ -139,6 +163,8 @@ class CoarseToFineMatcher:
             raise ValueError("candidate counts must be positive")
         if variance_log_distance_max < 0 or variance_epsilon <= 0:
             raise ValueError("variance thresholds must be positive")
+        if min_chroma_variance < 0 or min_brightness_variance < 0:
+            raise ValueError("minimum variances must be non-negative")
 
         self.device = torch.device(device)
         if self.device.type == "cuda" and not torch.cuda.is_available():
@@ -160,6 +186,8 @@ class CoarseToFineMatcher:
         )
         self.variance_log_distance_max = variance_log_distance_max
         self.variance_epsilon = variance_epsilon
+        self.min_chroma_variance = min_chroma_variance
+        self.min_brightness_variance = min_brightness_variance
 
         self.coarse_templates = self._create_templates(template_bgr, coarse_template_scales, "coarse")
         self.detail_templates = self._create_templates(template_bgr, detail_template_scales, "detail")
@@ -304,8 +332,15 @@ class CoarseToFineMatcher:
                     variance_channel_weights=self.variance_channel_weights,
                     variance_log_distance_max=self.variance_log_distance_max,
                     variance_epsilon=self.variance_epsilon,
+                    min_chroma_variance=self.min_chroma_variance,
+                    min_brightness_variance=self.min_brightness_variance,
                 )
-                if score_map.variance_passes is None:
+                if (
+                    score_map.variance_passes is None
+                    or score_map.flatness_passes is None
+                    or score_map.relative_variance_passes is None
+                    or score_map.candidate_variances is None
+                ):
                     raise RuntimeError("detail score map must include variance filter results")
                 variance_filters.append(
                     DetailVarianceFilter(
@@ -314,6 +349,15 @@ class CoarseToFineMatcher:
                         x_positions=score_map.x_positions,
                         y_positions=score_map.y_positions,
                         variance_passes=score_map.variance_passes.detach().cpu().numpy(),
+                        flatness_passes=score_map.flatness_passes.detach().cpu().numpy(),
+                        relative_variance_passes=(
+                            score_map.relative_variance_passes.detach().cpu().numpy()
+                        ),
+                        candidate_variances=(
+                            score_map.candidate_variances.detach().cpu().numpy()
+                        ),
+                        min_chroma_variance=self.min_chroma_variance,
+                        min_brightness_variance=self.min_brightness_variance,
                         stride=stride,
                     )
                 )
@@ -392,6 +436,9 @@ class ScoreMap:
     y_positions: list[int]
     variance_distances: torch.Tensor | None = None
     variance_passes: torch.Tensor | None = None
+    flatness_passes: torch.Tensor | None = None
+    relative_variance_passes: torch.Tensor | None = None
+    candidate_variances: torch.Tensor | None = None
 
 
 def _score_map(
@@ -403,8 +450,10 @@ def _score_map(
     variance_channel_weights: torch.Tensor | None = None,
     variance_log_distance_max: float | None = None,
     variance_epsilon: float = 1.0,
+    min_chroma_variance: float = 0.0,
+    min_brightness_variance: float = 0.0,
 ) -> ScoreMap:
-    """全配置候補の色差をGPUで求め、指定時は分散の近い候補だけを残す。"""
+    """全配置候補の色差をGPUで求め、平坦・分散差の大きい候補を除外する。"""
     x_positions = _scan_positions(frame_features.shape[1] - template.width, stride)
     y_positions = _scan_positions(frame_features.shape[0] - template.height, stride)
     candidates = torch.stack(
@@ -429,7 +478,13 @@ def _score_map(
         * variance_channel_weights,
         dim=1,
     )
-    variance_passes = variance_distances <= variance_log_distance_max
+    relative_variance_passes = variance_distances <= variance_log_distance_max
+    chroma_variance = candidate_variance[:, 0] + candidate_variance[:, 1]
+    # 色・明度のどちらかに十分な空間変化があれば、平坦領域とは扱わない。
+    flatness_passes = (chroma_variance >= min_chroma_variance) | (
+        candidate_variance[:, 2] >= min_brightness_variance
+    )
+    variance_passes = relative_variance_passes & flatness_passes
     scores = torch.full(
         (candidates.shape[0],), float("inf"), dtype=torch.float32, device=candidates.device
     )
@@ -446,4 +501,7 @@ def _score_map(
         y_positions,
         variance_distances.reshape(len(y_positions), len(x_positions)),
         variance_passes.reshape(len(y_positions), len(x_positions)),
+        flatness_passes.reshape(len(y_positions), len(x_positions)),
+        relative_variance_passes.reshape(len(y_positions), len(x_positions)),
+        candidate_variance.reshape(len(y_positions), len(x_positions), 3),
     )
