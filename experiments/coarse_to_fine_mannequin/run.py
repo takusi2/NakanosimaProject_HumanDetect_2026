@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
+from time import perf_counter
 
 import cv2
 import numpy as np
@@ -15,9 +16,15 @@ sys.path.insert(0, str(EXPERIMENT_DIR.parents[1]))
 
 from experiments.coarse_to_fine_mannequin.src.artifacts import (  # noqa: E402
     AnnotatedVideoWriter,
+    ArtifactSaveOptions,
     ArtifactWriter,
 )
 from experiments.coarse_to_fine_mannequin.src.pipeline import CoarseToFineMatcher  # noqa: E402
+from experiments.coarse_to_fine_mannequin.src.performance import (  # noqa: E402
+    FrameTiming,
+    PerformanceOptions,
+    PerformanceTracker,
+)
 
 
 def _resolve_path(value: str, config_path: Path) -> Path:
@@ -64,7 +71,12 @@ def main() -> None:
     )
 
     results_root = _resolve_path(str(config.get("results_root", "../results")), config_path)
-    writer = ArtifactWriter(results_root)
+    save_options = ArtifactSaveOptions.from_config(config)
+    performance_options = PerformanceOptions.from_config(config)
+    performance_tracker = (
+        PerformanceTracker(performance_options) if performance_options.enabled else None
+    )
+    writer = ArtifactWriter(results_root, save_options)
     writer.save_detail_templates(matcher.detail_templates)
 
     source = str(config.get("input_source", "video"))
@@ -77,8 +89,6 @@ def main() -> None:
     if not capture.isOpened():
         raise RuntimeError(f"cannot open {source} input")
 
-    save_every_n_frames = int(config.get("save_every_n_frames", 1))
-    save_annotated_video = bool(config.get("save_annotated_video", True))
     max_frames = config.get("max_frames")
     show_window = bool(config.get("show_window", True))
     display_width = config.get("display_width")
@@ -94,24 +104,45 @@ def main() -> None:
     annotated_video_writer: AnnotatedVideoWriter | None = None
     try:
         while True:
+            loop_started = perf_counter()
+            decode_started = perf_counter()
             ok, frame = capture.read()
+            decode_ended = perf_counter()
             if not ok:
                 break
             frame_number += 1
-            result = matcher.process(frame)
+            # 保存しない中間データはGPU上の検出判定にだけ使用し、CPUへは転送しない。
+            detection_started = perf_counter()
+            result = matcher.process(
+                frame,
+                collect_coarse_image=(
+                    save_options.enabled
+                    and (save_options.coarse_frame or save_options.coarse_candidates)
+                ),
+                collect_detail_variance_filters=(
+                    save_options.enabled
+                    and (save_options.variance_filters or save_options.scores_json)
+                ),
+            )
+            detection_ended = perf_counter()
 
-            if save_annotated_video:
+            artifact_started = perf_counter()
+            if save_options.enabled and save_options.annotated_video:
                 if annotated_video_writer is None:
                     annotated_video_writer = AnnotatedVideoWriter(
-                        writer.run_dir,
+                        writer.require_run_dir(),
                         capture.get(cv2.CAP_PROP_FPS),
                         frame.shape[1],
                         frame.shape[0],
                     )
                 annotated_video_writer.write(frame_number, frame, result)
 
-            if frame_number % save_every_n_frames == 0:
+            if save_options.should_save_frame(frame_number):
                 writer.save_frame(frame_number, frame, result)
+            artifact_ended = perf_counter()
+
+            display_started = perf_counter()
+            quit_requested = False
             if show_window:
                 # 検出は上の matcher.process(frame) で元フレームのまま完了している。
                 # ここで作る display は表示専用であり、判定値や保存元フレームを変えない。
@@ -155,7 +186,23 @@ def main() -> None:
                 )
                 cv2.imshow("Coarse-to-fine mannequin matcher", display)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
+                    quit_requested = True
+            display_ended = perf_counter()
+            if performance_tracker is not None:
+                performance_tracker.record(
+                    FrameTiming(
+                        frame_number=frame_number,
+                        decode_ms=(decode_ended - decode_started) * 1000.0,
+                        detection_ms=(detection_ended - detection_started) * 1000.0,
+                        artifact_write_ms=(artifact_ended - artifact_started) * 1000.0,
+                        display_ms=(display_ended - display_started) * 1000.0,
+                        total_ms=(display_ended - loop_started) * 1000.0,
+                    )
+                )
+                if performance_tracker.should_report(frame_number):
+                    print(performance_tracker.format_summary())
+            if quit_requested:
+                break
             if max_frames is not None and frame_number >= int(max_frames):
                 break
     finally:
@@ -165,9 +212,15 @@ def main() -> None:
         writer.close()
         cv2.destroyAllWindows()
 
-    print(f"saved_results={writer.run_dir}")
+    print(f"saved_results={writer.run_dir if writer.run_dir is not None else 'disabled'}")
     if annotated_video_writer is not None:
         print(f"saved_annotated_video={annotated_video_writer.path}")
+    if performance_tracker is not None:
+        performance_summary = performance_tracker.summary()
+        print(performance_tracker.format_summary())
+        performance_path = writer.save_performance_summary(performance_summary)
+        if performance_path is not None:
+            print(f"saved_performance_summary={performance_path}")
 
 
 if __name__ == "__main__":

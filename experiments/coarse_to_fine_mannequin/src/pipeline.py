@@ -116,7 +116,8 @@ class DetailVarianceFilter:
 class FrameResult:
     """1フレームの粗探索・詳細照合の全結果。"""
 
-    coarse_image_bgr: np.ndarray
+    # 保存・可視化が必要な場合だけGPUからCPUへ取り出す。
+    coarse_image_bgr: np.ndarray | None
     coarse_candidates: list[Candidate]
     rois: list[Roi]
     detail_matches: list[DetailMatch]
@@ -226,8 +227,18 @@ class CoarseToFineMatcher:
             )
         return templates
 
-    def process(self, frame_bgr: np.ndarray) -> FrameResult:
-        """1フレームをGPUで粗探索・詳細照合し、全中間結果を返す。"""
+    def process(
+        self,
+        frame_bgr: np.ndarray,
+        *,
+        collect_coarse_image: bool = True,
+        collect_detail_variance_filters: bool = True,
+    ) -> FrameResult:
+        """1フレームを照合する。
+
+        ``collect_*`` は保存・可視化用の中間データだけを制御する。検出結果は
+        変えず、不要なGPU→CPU転送と全候補配列の保持を避ける。
+        """
         with torch.inference_mode():
             # 元フレームは1回だけGPUへ転送する。詳細照合はこの特徴量のROIを切り出す。
             original_bgr_gpu = _to_gpu_bgr(frame_bgr, self.device)
@@ -235,14 +246,16 @@ class CoarseToFineMatcher:
 
             coarse_bgr_gpu = _downscale_on_gpu(original_bgr_gpu, self.frame_downscale)
             coarse_features = _bgr_to_features(coarse_bgr_gpu, self.brightness_weights)
-            coarse_image_bgr = (
-                coarse_bgr_gpu.round().to(torch.uint8).detach().cpu().numpy()
-            )
+            coarse_image_bgr = None
+            if collect_coarse_image:
+                coarse_image_bgr = (
+                    coarse_bgr_gpu.round().to(torch.uint8).detach().cpu().numpy()
+                )
 
             coarse_candidates = self._find_coarse_candidates(coarse_features)
             rois = self._make_rois(coarse_candidates, frame_bgr.shape[:2])
             detail_matches, detail_variance_filters = self._find_detail_matches(
-                original_features, rois
+                original_features, rois, collect_variance_filters=collect_detail_variance_filters
             )
             best_match = min(detail_matches, key=lambda item: item.score) if detail_matches else None
             return FrameResult(
@@ -314,7 +327,11 @@ class CoarseToFineMatcher:
         return rois
 
     def _find_detail_matches(
-        self, original_features: torch.Tensor, rois: list[Roi]
+        self,
+        original_features: torch.Tensor,
+        rois: list[Roi],
+        *,
+        collect_variance_filters: bool,
     ) -> tuple[list[DetailMatch], list[DetailVarianceFilter]]:
         matches: list[DetailMatch] = []
         variance_filters: list[DetailVarianceFilter] = []
@@ -342,25 +359,26 @@ class CoarseToFineMatcher:
                     or score_map.candidate_variances is None
                 ):
                     raise RuntimeError("detail score map must include variance filter results")
-                variance_filters.append(
-                    DetailVarianceFilter(
-                        roi=roi,
-                        template=template,
-                        x_positions=score_map.x_positions,
-                        y_positions=score_map.y_positions,
-                        variance_passes=score_map.variance_passes.detach().cpu().numpy(),
-                        flatness_passes=score_map.flatness_passes.detach().cpu().numpy(),
-                        relative_variance_passes=(
-                            score_map.relative_variance_passes.detach().cpu().numpy()
-                        ),
-                        candidate_variances=(
-                            score_map.candidate_variances.detach().cpu().numpy()
-                        ),
-                        min_chroma_variance=self.min_chroma_variance,
-                        min_brightness_variance=self.min_brightness_variance,
-                        stride=stride,
+                if collect_variance_filters:
+                    variance_filters.append(
+                        DetailVarianceFilter(
+                            roi=roi,
+                            template=template,
+                            x_positions=score_map.x_positions,
+                            y_positions=score_map.y_positions,
+                            variance_passes=score_map.variance_passes.detach().cpu().numpy(),
+                            flatness_passes=score_map.flatness_passes.detach().cpu().numpy(),
+                            relative_variance_passes=(
+                                score_map.relative_variance_passes.detach().cpu().numpy()
+                            ),
+                            candidate_variances=(
+                                score_map.candidate_variances.detach().cpu().numpy()
+                            ),
+                            min_chroma_variance=self.min_chroma_variance,
+                            min_brightness_variance=self.min_brightness_variance,
+                            stride=stride,
+                        )
                     )
-                )
                 if not torch.any(score_map.variance_passes):
                     continue
                 best_index = int(torch.argmin(score_map.scores).item())
