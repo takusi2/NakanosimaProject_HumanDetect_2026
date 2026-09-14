@@ -1,18 +1,21 @@
 # 粗探索・詳細照合の実験設定。パスはこのYAMLファイルからの相対パスでもよい。
 template_path: "../../../humanA/1-10-hiroto - frame at 0m0s.jpg"
 input_source: video
-video_path: "../../../output/1-10-hiroto-masa.mp4"
+video_path: "../../../output/9-2/20260902_1552_2fparking_nowide_gC01_gS06_iir040_nrA_cloudy-none_d4p5m_camstatic_manA-framein-right_t01_motor.mp4"
 camera_index: 0
 
 device: cuda
 frame_downscale: 0.25
 
-# 縮小フレームで使うテンプレート倍率。0.20は、元画像で0.8倍相当を1/4へ縮めた大きさ。
+# 粗探索のテンプレート倍率。小さいほど低解像度で探索する。
 coarse_template_scales: [0.20]
 # 元解像度ROIで使うテンプレート倍率。
 detail_template_scales: [1.0, 0.8, 0.6, 0.4]
 coarse_stride: 2
-detail_stride: 4
+# 詳細探索のstrideは、各倍率sについて max(detail_stride_min, floor(detail_stride_base * s))。
+# 例: base=4, min=2 のとき、1.0→4、0.9→3、0.8→3、0.7以下→2。
+detail_stride_base: 4
+detail_stride_min: 2
 coarse_top_k: 3
 coarse_candidates_per_template: 20
 nms_distance_original_px: 120
@@ -26,7 +29,7 @@ brightness_weights:
 channel_weights:
   rg: 0.5
   by: 0.5
-  y: 1.0
+  y: 2.0
 # 詳細ROI内でのみ使う分散選別。RG/BY/Yごとの対数分散差を合計して判定する。
 variance_channel_weights:
   rg: 1.0
@@ -36,8 +39,33 @@ variance_log_distance_max: 3.0
 variance_epsilon: 1.0
 min_weight: 0.05
 
-# 全保存は容量を使う。1なら毎フレーム、5なら5フレームごとに保存する。
-save_every_n_frames: 1
+# 保存制御。enabled: false にすると、画像・スコア・動画を一切保存しない。
+# every_n_frames は「フレーム画像」と「スコア」の保存間隔。検証動画には影響しない。
+save:
+  enabled: true
+  every_n_frames: 1
+  detail_templates: true
+  images:
+    original_frame: true
+    coarse_frame: true
+    coarse_candidates: true
+    coarse_rois: true
+    variance_filters: true
+    detail_matches: true
+    best_match: true
+  scores:
+    csv: true
+    json: true
+  annotated_video: true
+  # フレーム計測後に1回だけ保存するため、処理時間の集計には影響しない。
+  performance_json: true
+
+# 処理時間の計測設定。ウォームアップフレームは集計対象外にする。
+performance:
+  enabled: true
+  warmup_frames: 10
+  # 0なら終了時のみ表示。例: 30なら30フレームごとに途中結果も端末表示する。
+  report_every_n_frames: 0
 max_frames: null
 show_window: true
 # 表示ウィンドウだけの大きさ。未指定なら元フレームサイズで表示する。
