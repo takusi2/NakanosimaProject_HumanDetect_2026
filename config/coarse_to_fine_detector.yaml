@@ -1,0 +1,40 @@
+# ロボット用の粗探索・詳細照合マネキン検出設定。相対パスはこの設定ファイル基準。
+input_source: video
+video_path: ../output/tests/20260902_1552_2fparking_nowide_gC01_gS06_iir040_nrA_cloudy-none_d4p5m_camstatic_manA-framein-right_t01_motor.mp4
+camera_index: 0
+frame_width: 160
+frame_height: 120
+window_name: Coarse-to-fine mannequin detector
+
+template_path: ../humanA/20260902_1552_2fparking_nowide_gC01_gS06_iir040_nrA_cloudy-none_d4p5m_camstatic_manA-framein-right_t01_motor - frame at 0m5s._3jpg.jpg
+
+device: cuda
+frame_downscale: 0.5
+coarse_template_scales: [0.3, 0.4, 0.5]
+detail_template_scales: [1.0, 0.9, 0.8, 0.7, 0.6]
+coarse_stride: 2
+detail_stride_base: 4
+detail_stride_min: 2
+coarse_top_k: 3
+coarse_candidates_per_template: 20
+nms_distance_original_px: 40
+roi_margin_px: 5
+final_max_error: 25.0
+
+brightness_weights:
+  r: 0.299
+  g: 0.587
+  b: 0.114
+channel_weights:
+  rg: 0.5
+  by: 0.5
+  y: 1.0
+variance_channel_weights:
+  rg: 1.0
+  by: 1.0
+  y: 1.0
+variance_log_distance_max: 5.0
+variance_epsilon: 1.0
+min_chroma_variance: 50.0
+min_brightness_variance: 1000.0
+min_weight: 0.05
