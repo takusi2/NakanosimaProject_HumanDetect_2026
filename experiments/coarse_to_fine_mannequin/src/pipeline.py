@@ -124,6 +124,11 @@ class FrameResult:
     detail_variance_filters: list[DetailVarianceFilter]
     best_match: DetailMatch | None
     detected: bool
+    # run.py が時系列確認を行った場合にのみ設定する。Noneなら生の照合結果を示す。
+    temporal_status: str | None = None
+    track_id: int | None = None
+    positive_frames: int | None = None
+    history_window_frames: int | None = None
 
 
 class CoarseToFineMatcher:
@@ -269,8 +274,8 @@ class CoarseToFineMatcher:
             )
 
     def _find_coarse_candidates(self, coarse_features: torch.Tensor) -> list[Candidate]:
-        all_candidates: list[Candidate] = []
-        for template in self.coarse_templates:
+        candidate_rows: list[torch.Tensor] = []
+        for template_index, template in enumerate(self.coarse_templates):
             if template.height > coarse_features.shape[0] or template.width > coarse_features.shape[1]:
                 continue
             score_map = _score_map(
@@ -278,29 +283,74 @@ class CoarseToFineMatcher:
             )
             count = min(self.coarse_candidates_per_template, score_map.scores.numel())
             values, indices = torch.topk(score_map.scores.flatten(), k=count, largest=False)
-            for value, index in zip(values, indices):
-                flat_index = int(index.item())
-                x = score_map.x_positions[flat_index % len(score_map.x_positions)]
-                y = score_map.y_positions[flat_index // len(score_map.x_positions)]
-                all_candidates.append(Candidate(template, x, y, float(value.item())))
-
-        all_candidates.sort(key=lambda item: item.score)
-        selected: list[Candidate] = []
-        for candidate in all_candidates:
-            center_x = (candidate.x + candidate.template.width / 2) / self.frame_downscale
-            center_y = (candidate.y + candidate.template.height / 2) / self.frame_downscale
-            is_far_enough = all(
-                (center_x - (saved.x + saved.template.width / 2) / self.frame_downscale) ** 2
-                + (center_y - (saved.y + saved.template.height / 2) / self.frame_downscale) ** 2
-                >= self.nms_distance_original_px**2
-                for saved in selected
+            x_positions = torch.as_tensor(
+                score_map.x_positions, device=self.device, dtype=torch.long
             )
-            if is_far_enough:
-                selected.append(candidate)
-            if len(selected) == self.coarse_top_k:
-                break
-        if not selected:
+            y_positions = torch.as_tensor(
+                score_map.y_positions, device=self.device, dtype=torch.long
+            )
+            x = x_positions[torch.remainder(indices, len(score_map.x_positions))]
+            y = y_positions[torch.div(indices, len(score_map.x_positions), rounding_mode="floor")]
+            candidate_rows.append(
+                torch.stack(
+                    (
+                        values,
+                        x.to(torch.float32),
+                        y.to(torch.float32),
+                        torch.full_like(values, template_index),
+                    ),
+                    dim=1,
+                )
+            )
+
+        if not candidate_rows:
             raise ValueError("no coarse template fits inside the downscaled frame")
+        all_candidates = torch.cat(candidate_rows, dim=0)
+        scores = all_candidates[:, 0]
+        template_indices = all_candidates[:, 3].to(torch.long)
+        template_widths = torch.as_tensor(
+            [template.width for template in self.coarse_templates],
+            device=self.device,
+            dtype=torch.float32,
+        )
+        template_heights = torch.as_tensor(
+            [template.height for template in self.coarse_templates],
+            device=self.device,
+            dtype=torch.float32,
+        )
+        center_x = (all_candidates[:, 1] + template_widths[template_indices] / 2) / self.frame_downscale
+        center_y = (all_candidates[:, 2] + template_heights[template_indices] / 2) / self.frame_downscale
+
+        # NMSもGPU上で行う。最後に選ばれた最大top_k件だけを一括でCPUへ渡す。
+        available = torch.ones(scores.shape[0], dtype=torch.bool, device=self.device)
+        selected_rows: list[torch.Tensor] = []
+        for _ in range(min(self.coarse_top_k, scores.shape[0])):
+            masked_scores = scores.masked_fill(~available, float("inf"))
+            selected_index = torch.argmin(masked_scores)
+            selected_rows.append(
+                torch.cat(
+                    (masked_scores[selected_index].reshape(1), all_candidates[selected_index, 1:])
+                )
+            )
+            available[selected_index] = False
+            distance_squared = (center_x - center_x[selected_index]).square() + (
+                center_y - center_y[selected_index]
+            ).square()
+            available &= distance_squared >= self.nms_distance_original_px**2
+
+        # FrameResultはPythonの描画・保存コードへ返すため、この小さな配列だけは境界で転送する。
+        selected_values = torch.stack(selected_rows).detach().cpu().numpy()
+        selected: list[Candidate] = []
+        for score, x, y, template_index in selected_values:
+            if not np.isfinite(score):
+                continue
+            selected.append(
+                Candidate(
+                    self.coarse_templates[int(template_index)], int(x), int(y), float(score)
+                )
+            )
+        if not selected:
+            raise ValueError("no coarse candidates remained after NMS")
         return selected
 
     def _make_rois(self, candidates: list[Candidate], frame_shape: tuple[int, int]) -> list[Roi]:
@@ -333,8 +383,8 @@ class CoarseToFineMatcher:
         *,
         collect_variance_filters: bool,
     ) -> tuple[list[DetailMatch], list[DetailVarianceFilter]]:
-        matches: list[DetailMatch] = []
         variance_filters: list[DetailVarianceFilter] = []
+        pending_matches: list[tuple[Roi, Template, int, ScoreMap, torch.Tensor, torch.Tensor, torch.Tensor]] = []
         for roi in rois:
             roi_features = original_features[roi.y : roi.y + roi.height, roi.x : roi.x + roi.width]
             for template in self.detail_templates:
@@ -379,22 +429,51 @@ class CoarseToFineMatcher:
                             stride=stride,
                         )
                     )
-                if not torch.any(score_map.variance_passes):
-                    continue
-                best_index = int(torch.argmin(score_map.scores).item())
-                local_x = score_map.x_positions[best_index % len(score_map.x_positions)]
-                local_y = score_map.y_positions[best_index // len(score_map.x_positions)]
-                matches.append(
-                    DetailMatch(
+                flat_scores = score_map.scores.flatten()
+                best_index = torch.argmin(flat_scores)
+                pending_matches.append(
+                    (
                         roi,
                         template,
-                        roi.x + local_x,
-                        roi.y + local_y,
-                        float(score_map.scores.flatten()[best_index].item()),
-                        float(score_map.variance_distances.flatten()[best_index].item()),
                         stride,
+                        score_map,
+                        best_index,
+                        flat_scores[best_index],
+                        score_map.variance_distances.flatten()[best_index],
                     )
                 )
+
+        if not pending_matches:
+            return [], variance_filters
+
+        # 詳細候補のインデックス・スコア・分散距離をまとめてCPUへ渡す。一候補ごとの
+        # item() や bool判定によるGPU同期を避け、全GPUカーネルを先に投入できる。
+        compact_results = torch.stack(
+            [
+                torch.stack((item[4].to(torch.float32), item[5], item[6]))
+                for item in pending_matches
+            ]
+        ).detach().cpu().numpy()
+        matches: list[DetailMatch] = []
+        for (roi, template, stride, score_map, _, _, _), (best_index, score, variance_distance) in zip(
+            pending_matches, compact_results
+        ):
+            if not np.isfinite(score):
+                continue
+            index = int(best_index)
+            local_x = score_map.x_positions[index % len(score_map.x_positions)]
+            local_y = score_map.y_positions[index // len(score_map.x_positions)]
+            matches.append(
+                DetailMatch(
+                    roi,
+                    template,
+                    roi.x + local_x,
+                    roi.y + local_y,
+                    float(score),
+                    float(variance_distance),
+                    stride,
+                )
+            )
         return matches, variance_filters
 
 
@@ -474,12 +553,8 @@ def _score_map(
     """全配置候補の色差をGPUで求め、平坦・分散差の大きい候補を除外する。"""
     x_positions = _scan_positions(frame_features.shape[1] - template.width, stride)
     y_positions = _scan_positions(frame_features.shape[0] - template.height, stride)
-    candidates = torch.stack(
-        [
-            frame_features[y : y + template.height, x : x + template.width]
-            for y in y_positions
-            for x in x_positions
-        ]
+    candidates = _extract_candidate_patches(
+        frame_features, x_positions, y_positions, template.width, template.height
     )
     if variance_channel_weights is None:
         difference = template.features.unsqueeze(0) - candidates
@@ -503,16 +578,14 @@ def _score_map(
         candidate_variance[:, 2] >= min_brightness_variance
     )
     variance_passes = relative_variance_passes & flatness_passes
-    scores = torch.full(
-        (candidates.shape[0],), float("inf"), dtype=torch.float32, device=candidates.device
+    difference = template.features.unsqueeze(0) - candidates
+    pixel_error = torch.sqrt(torch.sum(difference.square() * channel_weights, dim=3))
+    unfiltered_scores = torch.sum(pixel_error * template.weights, dim=(1, 2)) / template.weights.sum()
+    scores = torch.where(
+        variance_passes,
+        unfiltered_scores,
+        torch.full_like(unfiltered_scores, float("inf")),
     )
-    if torch.any(variance_passes):
-        valid_candidates = candidates[variance_passes]
-        difference = template.features.unsqueeze(0) - valid_candidates
-        pixel_error = torch.sqrt(torch.sum(difference.square() * channel_weights, dim=3))
-        scores[variance_passes] = (
-            torch.sum(pixel_error * template.weights, dim=(1, 2)) / template.weights.sum()
-        )
     return ScoreMap(
         scores.reshape(len(y_positions), len(x_positions)),
         x_positions,
@@ -523,3 +596,22 @@ def _score_map(
         relative_variance_passes.reshape(len(y_positions), len(x_positions)),
         candidate_variance.reshape(len(y_positions), len(x_positions), 3),
     )
+
+
+def _extract_candidate_patches(
+    frame_features: torch.Tensor,
+    x_positions: list[int],
+    y_positions: list[int],
+    width: int,
+    height: int,
+) -> torch.Tensor:
+    """全候補のROIパッチをGPUの高度インデックスで一括抽出する。"""
+    x_starts = torch.as_tensor(x_positions, device=frame_features.device, dtype=torch.long)
+    y_starts = torch.as_tensor(y_positions, device=frame_features.device, dtype=torch.long)
+    x_indices = x_starts[:, None] + torch.arange(width, device=frame_features.device)
+    y_indices = y_starts[:, None] + torch.arange(height, device=frame_features.device)
+    patches = frame_features[
+        y_indices[:, None, :, None],
+        x_indices[None, :, None, :],
+    ]
+    return patches.reshape(len(y_positions) * len(x_positions), height, width, 3)

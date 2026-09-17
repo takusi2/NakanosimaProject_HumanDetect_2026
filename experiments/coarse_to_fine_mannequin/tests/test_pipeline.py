@@ -4,9 +4,11 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 import cv2
 import numpy as np
+import torch
 
 from experiments.coarse_to_fine_mannequin.src.pipeline import CoarseToFineMatcher
 from experiments.coarse_to_fine_mannequin.src.artifacts import (
@@ -146,6 +148,35 @@ class CoarseToFineMatcherTests(unittest.TestCase):
             (full_result.best_match.x, full_result.best_match.y),
         )
         self.assertEqual(lightweight_result.best_match.score, full_result.best_match.score)
+
+    def test_lightweight_process_avoids_per_candidate_tensor_item_calls(self) -> None:
+        rng = np.random.default_rng(852)
+        template = rng.integers(0, 256, size=(16, 12, 3), dtype=np.uint8)
+        frame = np.zeros((80, 96, 3), dtype=np.uint8)
+        frame[40:56, 48:60] = template
+        matcher = CoarseToFineMatcher(
+            template,
+            device="cpu",
+            frame_downscale=0.25,
+            coarse_template_scales=[0.25],
+            detail_template_scales=[1.0],
+            coarse_stride=1,
+            detail_stride_base=1,
+            detail_stride_min=1,
+            coarse_top_k=1,
+            nms_distance_original_px=10,
+            roi_margin_px=8,
+            final_max_error=0.1,
+        )
+
+        with mock.patch.object(torch.Tensor, "item", side_effect=AssertionError("unexpected item()")):
+            result = matcher.process(
+                frame,
+                collect_coarse_image=False,
+                collect_detail_variance_filters=False,
+            )
+
+        self.assertTrue(result.detected)
 
     def test_saves_variance_filter_visualisation(self) -> None:
         rng = np.random.default_rng(789)

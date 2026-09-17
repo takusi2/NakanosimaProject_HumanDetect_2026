@@ -265,6 +265,7 @@ class ArtifactWriter:
                 )
 
         detail_records = []
+        temporal_status = result.temporal_status or ("MATCH" if result.detected else "NO MATCH")
         for detail in result.detail_matches:
             is_best = detail is result.best_match
             selected = is_best
@@ -285,9 +286,12 @@ class ArtifactWriter:
                     detail.roi.y : detail.roi.y + detail.roi.height,
                     detail.roi.x : detail.roi.x + detail.roi.width,
                 ].copy()
-                if is_best and result.detected:
+                if is_best and temporal_status == "MATCH":
                     colour = (0, 255, 0)
                     label = f"MATCH score={detail.score:.2f} scale={detail.template.scale:.3f}"
+                elif is_best and temporal_status == "MAYBE":
+                    colour = (0, 165, 255)
+                    label = f"MAYBE score={detail.score:.2f} scale={detail.template.scale:.3f}"
                 elif is_best:
                     colour = (0, 0, 255)
                     label = (
@@ -337,14 +341,19 @@ class ArtifactWriter:
                     "NO DETAIL MATCH: variance filter rejected all candidates",
                 )
             else:
+                best_colour = (
+                    (0, 255, 0)
+                    if temporal_status == "MATCH"
+                    else ((0, 165, 255) if temporal_status == "MAYBE" else (0, 0, 255))
+                )
                 _draw_box(
                     best_image,
                     best.x,
                     best.y,
                     best.template.width,
                     best.template.height,
-                    (0, 255, 0) if result.detected else (0, 0, 255),
-                    f"{'MANNEQUIN' if result.detected else 'NO MATCH'} score={best.score:.2f}",
+                    best_colour,
+                    f"{temporal_status} score={best.score:.2f}",
                 )
             _write_image(self._directory("05_detail_match") / f"{frame_id}_best.png", best_image)
         if self.csv_file is not None:
@@ -353,6 +362,10 @@ class ArtifactWriter:
         score_json = {
             "frame": frame_number,
             "detected": result.detected,
+            "temporal_status": result.temporal_status,
+            "track_id": result.track_id,
+            "positive_frames": result.positive_frames,
+            "history_window_frames": result.history_window_frames,
             "coarse_candidates": coarse_records,
             "rois": [
                 {"index": roi.index, "x": roi.x, "y": roi.y, "width": roi.width, "height": roi.height}
@@ -477,13 +490,18 @@ def draw_annotated_frame(
         )
 
     best = result.best_match
+    temporal_status = result.temporal_status or ("MATCH" if result.detected else "NO MATCH")
     if best is None:
-        status = f"F{frame_number} NO: variance rejected"
+        status = f"F{frame_number} NO MATCH: variance rejected"
         colour = (0, 0, 255)
     else:
-        colour = (0, 255, 0) if result.detected else (0, 0, 255)
+        colour = (
+            (0, 255, 0)
+            if temporal_status == "MATCH"
+            else ((0, 165, 255) if temporal_status == "MAYBE" else (0, 0, 255))
+        )
         status = (
-            f"F{frame_number} {'MATCH' if result.detected else 'NO'} "
+            f"F{frame_number} {temporal_status} "
             f"{best.score:.2f} x{best.template.scale:.2f}"
         )
         cv2.rectangle(
