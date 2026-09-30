@@ -2,6 +2,25 @@
 
 縮小フレームで候補領域を絞り、元解像度の候補ROIだけを複数サイズの参照画像で詳細照合する実験です。色特徴量・テンプレート誤差・最小値検索はPyTorch/CUDAで行います。
 
+## プログラム構成
+
+検出の流れを初めて読む人は、まず `run.py`、次に `src/pipeline.py` を読んでください。`pipeline.py` は処理の順番だけを担当し、具体的な処理は役割ごとのファイルへ分けています。
+
+| ファイル | 担当する処理 |
+| --- | --- |
+| `run.py` | 設定読込、動画・カメラ入力、表示、保存、時系列追跡の呼び出し |
+| `src/pipeline.py` | 特徴量化 → 粗探索 → ROI作成 → 詳細探索を順に呼ぶ検出器の窓口 |
+| `src/features.py` | BGRからRG/BY/Brightnessへの変換、縮小、中心重み |
+| `src/types.py` | Template、Candidate、Roi、DetailMatchなどの結果データ型 |
+| `src/coarse_search.py` | 縮小フレームでの粗探索、NMS、詳細探索ROIの作成 |
+| `src/detail_search.py` | 元解像度ROI内の複数倍率テンプレート照合 |
+| `src/scoring.py` | 色差スコア、平坦領域フィルタ、相対分散フィルタ |
+| `src/tracking.py` | フレーム間IoUによるMAYBE/MATCH確定 |
+| `src/artifacts.py` | 画像・JSON・CSV・検証動画の保存 |
+| `src/performance.py` | 処理時間・FPSの集計 |
+
+関数ごとの説明とコード抜粋は、[`document/coarse_to_fine_source_reference.md`](../../document/coarse_to_fine_source_reference.md) にまとめています。
+
 ## 処理の流れ
 
 1. 元参照画像から詳細照合用テンプレートを複数倍率で作り、GPUへ保存する。
