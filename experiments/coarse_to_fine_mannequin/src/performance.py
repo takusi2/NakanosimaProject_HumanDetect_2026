@@ -4,19 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import statistics
-from typing import Mapping
+from collections.abc import Mapping
+
+from .readonly import ReadOnlySettings
 
 
-@dataclass(frozen=True)
-class PerformanceOptions:
+class PerformanceOptions(ReadOnlySettings):
     """計測表示の設定。"""
 
-    enabled: bool = True
-    warmup_frames: int = 10
-    report_every_n_frames: int = 0
-
-    @classmethod
-    def from_config(cls, config: Mapping[str, object]) -> "PerformanceOptions":
+    def __init__(self, config: Mapping[str, object]) -> None:
         raw = config.get("performance", {})
         if raw is None:
             raw = {}
@@ -26,11 +22,10 @@ class PerformanceOptions:
         report_every_n_frames = int(raw.get("report_every_n_frames", 0))
         if warmup_frames < 0 or report_every_n_frames < 0:
             raise ValueError("performance frame counts must be non-negative")
-        return cls(
-            enabled=bool(raw.get("enabled", True)),
-            warmup_frames=warmup_frames,
-            report_every_n_frames=report_every_n_frames,
-        )
+        self.enabled = bool(raw.get("enabled", True))
+        self.warmup_frames = warmup_frames
+        self.report_every_n_frames = report_every_n_frames
+        self._lock_settings()
 
 
 @dataclass(frozen=True)
@@ -85,7 +80,10 @@ class PerformanceTracker:
     def format_summary(self) -> str:
         summary = self.summary()
         if summary["frames_measured"] == 0:
-            return "[performance] no measured frames (increase max_frames or reduce warmup_frames)"
+            return (
+                "[performance] no measured frames "
+                "(increase processing_frame_limit or reduce warmup_frames)"
+            )
         total = summary["total"]
         detection = summary["detection"]
         decode = summary["decode"]

@@ -9,6 +9,7 @@
 | ファイル | 担当する処理 |
 | --- | --- |
 | `run.py` | 設定読込、動画・カメラ入力、表示、保存、時系列追跡の呼び出し |
+| `src/settings.py` | YAMLを一度読み、照合・追跡・入力・表示用の設定クラスへ保持する。初期化後の設定値は変更不可 |
 | `src/pipeline.py` | 特徴量化 → 粗探索 → ROI作成 → 詳細探索を順に呼ぶ検出器の窓口 |
 | `src/features.py` | BGRからRG/BY/Brightnessへの変換、縮小、中心重み |
 | `src/types.py` | Template、Candidate、Roi、DetailMatchなどの結果データ型 |
@@ -16,8 +17,13 @@
 | `src/detail_search.py` | 元解像度ROI内の複数倍率テンプレート照合 |
 | `src/scoring.py` | 色差スコア、平坦領域フィルタ、相対分散フィルタ |
 | `src/tracking.py` | フレーム間IoUによるMAYBE/MATCH確定 |
+| `src/display.py` | 検出枠・状態・スコア・FPSをOpenCV表示用フレームへ描画 |
 | `src/artifacts.py` | 画像・JSON・CSV・検証動画の保存 |
 | `src/performance.py` | 処理時間・FPSの集計 |
+| `sensor_io/` | `ClsImageViewerUDP.py`・`ClsUdpReceiveData.py` を含むUDPイメージセンサ受信部。親フォルダへ依存しないローカルコピー |
+| `sensor_io/frame_sources.py` | UDPセンサ・動画・カメラの違いを `read()` / `close()` / `get_fps()` に統一する入力変換部 |
+
+設定ファイルの役割と、引継ぎ時に必須ではない項目は、[config/README.md](config/README.md) を参照する。
 
 関数ごとの説明とコード抜粋は、[`document/coarse_to_fine_source_reference.md`](../../document/coarse_to_fine_source_reference.md) にまとめています。
 
@@ -41,6 +47,36 @@
 
 ```powershell
 & .\env\Scripts\python.exe .\experiments\coarse_to_fine_mannequin\run.py --config .\experiments\coarse_to_fine_mannequin\config\default.yaml
+```
+
+### 実験フォルダ単体で渡す場合
+
+このフォルダは、`run.py`、`src/`、`sensor_io/` だけでプログラム本体が完結する。
+プロジェクト直下の `ClsImageViewerUDP.py`、`ClsUdpReceiveData.py`、`bin_to_BGRmp4.py` は実行時に参照しない。
+
+渡すときは、参照画像と入力動画を `assets/` へ置き、
+[`config/standalone_example.yaml`](config/standalone_example.yaml) を利用する。
+データファイル名は次のようにするか、YAML内のパスを変更する。
+
+```text
+coarse_to_fine_mannequin/
+├─ run.py
+├─ src/
+├─ sensor_io/
+├─ assets/
+│  ├─ template.jpg
+│  └─ input.mp4
+├─ config/
+│  └─ standalone_example.yaml
+└─ results/                 # 実行時に作成
+```
+
+実験フォルダへ移動して実行する例は次の通り。仮想環境は、受け取った側で
+必要なライブラリを導入した環境のPythonへ読み替える。
+
+```powershell
+Set-Location .\experiments\coarse_to_fine_mannequin
+& ..\..\env\Scripts\python.exe .\run.py --config .\config\standalone_example.yaml
 ```
 
 ## 保存される成果物

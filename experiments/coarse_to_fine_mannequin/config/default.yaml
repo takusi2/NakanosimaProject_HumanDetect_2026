@@ -1,46 +1,31 @@
-# 粗探索・詳細照合の実験設定。パスはこのYAMLファイルからの相対パスでもよい。
+# 粗探索・詳細探索マネキン検出の基本設定例。
+# 新しい実験設定を作るときは、この構成をコピーしてパスと検出条件を変更する。
+
+# =============================================================================
+# 1. 入力設定
+# =============================================================================
 template_path: "../../../humanA/1-10-hiroto - frame at 0m0s.jpg"
 input_source: video
 video_path: "../../../output/9-2/20260902_1552_2fparking_nowide_gC01_gS06_iir040_nrA_cloudy-none_d4p5m_camstatic_manA-framein-right_t01_motor.mp4"
+# input_source: camera のときだけ使うカメラ番号。
 camera_index: 0
+# 検出前に入力フレームをそろえるサイズ [幅, 高さ]。
+input_width: 160
+input_height: 120
 
-device: cuda
-frame_downscale: 0.25
+# =============================================================================
+# 2. 表示設定
+# =============================================================================
+show_window: true
+window_name: Coarse-to-fine mannequin matcher
+# 表示用サイズ [幅, 高さ]。検出・保存時のサイズは input_width / input_height。
+display_width: 1280
+display_height: 960
 
-# 粗探索のテンプレート倍率。小さいほど低解像度で探索する。
-coarse_template_scales: [0.20]
-# 元解像度ROIで使うテンプレート倍率。
-detail_template_scales: [1.0, 0.8, 0.6, 0.4]
-coarse_stride: 2
-# 詳細探索のstrideは、各倍率sについて max(detail_stride_min, floor(detail_stride_base * s))。
-# 例: base=4, min=2 のとき、1.0→4、0.9→3、0.8→3、0.7以下→2。
-detail_stride_base: 4
-detail_stride_min: 2
-coarse_top_k: 3
-coarse_candidates_per_template: 20
-nms_distance_original_px: 120
-roi_margin_px: 32
-final_max_error: 27.0
-
-brightness_weights:
-  r: 0.299
-  g: 0.587
-  b: 0.114
-channel_weights:
-  rg: 0.5
-  by: 0.5
-  y: 2.0
-# 詳細ROI内でのみ使う分散選別。RG/BY/Yごとの対数分散差を合計して判定する。
-variance_channel_weights:
-  rg: 1.0
-  by: 1.0
-  y: 1.0
-variance_log_distance_max: 3.0
-variance_epsilon: 1.0
-min_weight: 0.05
-
-# 保存制御。enabled: false にすると、画像・スコア・動画を一切保存しない。
-# every_n_frames は「フレーム画像」と「スコア」の保存間隔。検証動画には影響しない。
+# =============================================================================
+# 3. 出力・保存設定
+# =============================================================================
+results_root: "../results"
 save:
   enabled: true
   every_n_frames: 1
@@ -57,18 +42,61 @@ save:
     csv: true
     json: true
   annotated_video: true
-  # フレーム計測後に1回だけ保存するため、処理時間の集計には影響しない。
   performance_json: true
 
-# 処理時間の計測設定。ウォームアップフレームは集計対象外にする。
 performance:
   enabled: true
   warmup_frames: 10
-  # 0なら終了時のみ表示。例: 30なら30フレームごとに途中結果も端末表示する。
+  # 0なら終了時のみ、正の値ならそのフレーム間隔で計測値を端末表示する。
   report_every_n_frames: 0
-max_frames: null
-show_window: true
-# 表示ウィンドウだけの大きさ。未指定なら元フレームサイズで表示する。
-display_width: 1280
-display_height: 960
-results_root: "../results"
+
+# nullなら動画終端まで処理する。
+processing_frame_limit: null
+
+# =============================================================================
+# 4. 検出パラメータ: 粗探索・詳細探索ROI
+# =============================================================================
+device: cuda
+frame_downscale: 0.25
+coarse_template_scales: [0.20]
+detail_template_scales: [1.0, 0.8, 0.6, 0.4]
+coarse_stride: 2
+# 倍率sごとに max(detail_stride_min, floor(detail_stride_base × s)) を使う。
+detail_stride_base: 4
+detail_stride_min: 2
+coarse_top_k: 3
+coarse_candidates_per_template: 20
+nms_distance_original_px: 120
+roi_margin_px: 32
+final_max_error: 27.0
+
+# =============================================================================
+# 5. 検出パラメータ: 色特徴量・分散フィルタ
+# =============================================================================
+brightness_weights:
+  r: 0.299
+  g: 0.587
+  b: 0.114
+channel_weights:
+  rg: 0.5
+  by: 0.5
+  y: 2.0
+# RG/BY/Brightnessの対数分散差に用いる重み。
+variance_channel_weights:
+  rg: 1.0
+  by: 1.0
+  y: 1.0
+variance_log_distance_max: 3.0
+variance_epsilon: 1.0
+# 0.0なら平坦領域の絶対分散下限による除外を無効にする。
+min_chroma_variance: 0.0
+min_brightness_variance: 0.0
+min_weight: 0.05
+
+# =============================================================================
+# 6. 検出パラメータ: 時系列追跡
+# =============================================================================
+target_confirm_window_frames: 10
+target_confirm_frames: 5
+match_iou_thresh: 0.8
+max_track_age: 30

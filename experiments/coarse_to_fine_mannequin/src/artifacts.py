@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -13,29 +12,13 @@ import cv2
 import numpy as np
 
 from .pipeline import DetailVarianceFilter, FrameResult, Template
+from .readonly import ReadOnlySettings
 
 
-@dataclass(frozen=True)
-class ArtifactSaveOptions:
+class ArtifactSaveOptions(ReadOnlySettings):
     """実験成果物を種類ごとに選んで保存するための設定。"""
 
-    enabled: bool = True
-    every_n_frames: int = 1
-    detail_templates: bool = True
-    original_frame: bool = True
-    coarse_frame: bool = True
-    coarse_candidates: bool = True
-    coarse_rois: bool = True
-    variance_filters: bool = True
-    detail_matches: bool = True
-    best_match: bool = True
-    scores_csv: bool = True
-    scores_json: bool = True
-    annotated_video: bool = True
-    performance_json: bool = True
-
-    @classmethod
-    def from_config(cls, config: Mapping[str, object]) -> "ArtifactSaveOptions":
+    def __init__(self, config: Mapping[str, object]) -> None:
         """新しい ``save:`` 設定と旧設定の両方を読み取る。"""
         raw_save = config.get("save", {})
         if raw_save is None:
@@ -56,24 +39,23 @@ class ArtifactSaveOptions:
         every_n_frames = int(raw_save.get("every_n_frames", config.get("save_every_n_frames", 1)))
         if every_n_frames <= 0:
             raise ValueError("save.every_n_frames must be positive")
-        return cls(
-            enabled=bool(raw_save.get("enabled", True)),
-            every_n_frames=every_n_frames,
-            detail_templates=bool(raw_save.get("detail_templates", True)),
-            original_frame=bool(images.get("original_frame", True)),
-            coarse_frame=bool(images.get("coarse_frame", True)),
-            coarse_candidates=bool(images.get("coarse_candidates", True)),
-            coarse_rois=bool(images.get("coarse_rois", True)),
-            variance_filters=bool(images.get("variance_filters", True)),
-            detail_matches=bool(images.get("detail_matches", True)),
-            best_match=bool(images.get("best_match", True)),
-            scores_csv=bool(scores.get("csv", True)),
-            scores_json=bool(scores.get("json", True)),
-            annotated_video=bool(
-                raw_save.get("annotated_video", config.get("save_annotated_video", True))
-            ),
-            performance_json=bool(raw_save.get("performance_json", True)),
+        self.enabled = bool(raw_save.get("enabled", True))
+        self.every_n_frames = every_n_frames
+        self.detail_templates = bool(raw_save.get("detail_templates", True))
+        self.original_frame = bool(images.get("original_frame", True))
+        self.coarse_frame = bool(images.get("coarse_frame", True))
+        self.coarse_candidates = bool(images.get("coarse_candidates", True))
+        self.coarse_rois = bool(images.get("coarse_rois", True))
+        self.variance_filters = bool(images.get("variance_filters", True))
+        self.detail_matches = bool(images.get("detail_matches", True))
+        self.best_match = bool(images.get("best_match", True))
+        self.scores_csv = bool(scores.get("csv", True))
+        self.scores_json = bool(scores.get("json", True))
+        self.annotated_video = bool(
+            raw_save.get("annotated_video", config.get("save_annotated_video", True))
         )
+        self.performance_json = bool(raw_save.get("performance_json", True))
+        self._lock_settings()
 
     @property
     def has_frame_output(self) -> bool:
@@ -108,7 +90,7 @@ class ArtifactWriter:
     """設定で選択された実験成果物だけをresults配下へ書き出す。"""
 
     def __init__(self, results_root: Path, options: ArtifactSaveOptions | None = None) -> None:
-        self.options = options or ArtifactSaveOptions()
+        self.options = options or ArtifactSaveOptions({})
         self.run_dir: Path | None = None
         self.csv_file = None
         self.csv_writer: csv.DictWriter | None = None

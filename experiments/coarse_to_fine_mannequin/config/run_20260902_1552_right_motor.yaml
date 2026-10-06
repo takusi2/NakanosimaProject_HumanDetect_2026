@@ -1,82 +1,124 @@
-template_path: "../../../humanA/20260902_1552_2fparking_nowide_gC01_gS06_iir040_nrA_cloudy-none_d4p5m_camstatic_manA-framein-right_t01_motor - frame at 0m5s._3jpg.jpg"
-input_source: video
-video_path: "../../../output/tests/2026-0826-1601-05_center_surround.mp4"
-camera_index: 0
-# 入力をこの大きさにそろえてから検出する。未指定なら入力サイズをそのまま使う。
-frame_width: 160
-frame_height: 120
-window_name: Coarse-to-fine mannequin matcher
+# 粗探索・詳細探索によるマネキン検出の実行設定。
+# パスは、このYAMLファイルがある config/ フォルダからの相対パスで指定する。
 
+# =============================================================================
+# 1. 入力設定
+# =============================================================================
+template_path: "../../../humanA/sample2.png" # 参照画像
+# 入力種別: udp（イメージセンサ）,video（動画ファイル）。
+input_source: video
+video_path: "../../../output/1970-0101-1002-16_center_surround.mp4"
+input_width: 160
+input_height: 120
+
+# =============================================================================
+# 2. 表示設定
+# =============================================================================
+show_window: true
+window_name: Coarse-to-fine mannequin matcher
+# 表示サイズ
+display_width: 640
+display_height: 480
+
+# =============================================================================
+# 3. 出力・保存設定
+# =============================================================================
+# 実行結果を保存する親フォルダ。実行ごとに run_日時 フォルダが作られる。
+results_root: "../results"
+
+# 画像・スコア・検証動画の保存設定
+save:
+  enabled: false
+  every_n_frames: 1      # 保存するフレーム間隔
+  detail_templates: true # 保存する詳細探索用テンプレート画像
+  images:
+    original_frame: true       # 入力フレーム
+    coarse_frame: true         # 粗探索用の縮小フレーム
+    coarse_candidates: true    # 粗探索候補を描いた縮小フレーム
+    coarse_rois: true          # 元画像上の粗探索ROI
+    variance_filters: true     # 分散フィルタで除外された候補
+    detail_matches: true       # ROIごとの詳細探索結果
+    best_match: true           # 全ROI中で最小誤差の候補
+  scores:
+    csv: true
+    json: true
+  # ROIと最良候補を重ねた動画を、全フレーム保存する。
+  annotated_video: false
+  # 処理時間の最終集計をJSON保存する。
+  performance_json: false
+
+# 処理時間の計測・端末表示設定。
+performance:
+  enabled: true
+  # この枚数まではウォームアップとしてFPS集計から除外する。
+  warmup_frames: 10
+  # 0なら終了時だけ表示。50なら50フレームごとにも途中結果を表示する。
+  report_every_n_frames: 50
+
+# 先頭から処理する最大フレーム数。nullなら動画終端まで処理する。
+processing_frame_limit: null
+
+# =============================================================================
+# 4. 検出パラメータ: 実行環境・粗探索・ROI作成
+# =============================================================================
+# cuda または cpu。Jetson等の実行環境に合わせる。
 device: cuda
+# 粗探索時のフレーム縮小倍率。
 frame_downscale: 0.5
+# 粗探索で使うテンプレート倍率。
 coarse_template_scales: [0.3, 0.4, 0.5]
+# ROI内の詳細探索で使うテンプレート倍率。
 detail_template_scales: [1.0, 0.9, 0.8, 0.7, 0.6]
+# 粗探索でテンプレートを移動させる間隔 [縮小フレーム上のpx]。
 coarse_stride: 2
-# 詳細探索のstrideは、各倍率sについて max(detail_stride_min, floor(detail_stride_base * s))。
-# 例: base=4, min=2 のとき、1.0→4、0.9→3、0.8→3、0.7以下→2。
+# 詳細探索の移動間隔。各倍率sで max(detail_stride_min, floor(detail_stride_base × s))。
 detail_stride_base: 4
 detail_stride_min: 2
+# 粗探索から詳細探索へ渡す候補数に関する設定。
 coarse_top_k: 3
 coarse_candidates_per_template: 20
+# 同じ場所に近い粗探索候補を重複としてまとめる距離 [元画像上のpx]。
 nms_distance_original_px: 40
+# 粗探索候補の周囲に詳細探索ROIとして追加する余白 [px]。
 roi_margin_px: 5
+# 最良候補を生検出とみなす誤差の上限。
 final_max_error: 25.0
 
-# 同一位置の生検出を追跡し、直近10フレーム中5回以上でMATCHと確定する。
-target_confirm_window_frames: 10
-target_confirm_frames: 5
-match_iou_thresh: 0.8
-max_track_age: 30
-
-
+# =============================================================================
+# 5. 検出パラメータ: 色特徴量・分散フィルタ・誤差重み
+# =============================================================================
+# Brightness = r×R + g×G + b×B の重み。
 brightness_weights:
   r: 0.299
   g: 0.587
   b: 0.114
+# RG / BY / Brightness の色差スコア重み。
 channel_weights:
   rg: 0.5
   by: 0.5
   y: 1.0
+# RG / BY / Brightness の分散差スコア重み。
 variance_channel_weights:
   rg: 1.0
   by: 1.0
   y: 1.0
+# 参照画像と候補領域の対数分散差の許容上限。
 variance_log_distance_max: 5.0
+# 対数分散を計算する際にゼロ除算を避ける小さい値。
 variance_epsilon: 1.0
-# 平坦領域の絶対分散下限。色分散(RG + BY)とBrightness分散が両方この値未満なら除外する。
-# 現在の参照画像の各倍率における分散の約10%を初期値としている。
+# RG+BY分散とBrightness分散が両方この値未満なら、平坦領域として除外する。
 min_chroma_variance: 50.0
 min_brightness_variance: 1000.0
+# テンプレート中央を重視する重みの最小値。
 min_weight: 0.05
 
-# 保存制御。enabled: false にすると、画像・スコア・動画を一切保存しない。
-# every_n_frames は「フレーム画像」と「スコア」の保存間隔。検証動画には影響しない。
-save:
-  enabled: false
-  every_n_frames: 1
-  detail_templates: true
-  images:
-    original_frame: true
-    coarse_frame: true
-    coarse_candidates: true
-    coarse_rois: true
-    variance_filters: true
-    detail_matches: true
-    best_match: true
-  scores:
-    csv: true
-    json: true
-  annotated_video: false
-  performance_json: false
-
-# 処理時間の計測設定。ウォームアップフレームは集計対象外にする。
-performance:
-  enabled: true
-  warmup_frames: 10
-  report_every_n_frames: 50
-max_frames: null
-show_window: true
-# 表示ウィンドウだけの大きさ。検出処理や保存元フレームは160x120のまま。
-display_width: 640
-display_height: 480
-results_root: "../results"
+# =============================================================================
+# 6. 検出パラメータ: 時系列追跡による MATCH 確定
+# =============================================================================
+# 直近window内でconfirm回以上の生検出があればMATCHに確定する。
+target_confirm_window_frames: 10
+target_confirm_frames: 5
+# 同一対象とみなす矩形IoUの下限。
+match_iou_thresh: 0.8
+# 生検出が途切れた後も追跡情報を保持する最大フレーム数。
+max_track_age: 30

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 import cv2
 import numpy as np
@@ -19,6 +19,9 @@ from .features import (
     to_gpu_bgr,
 )
 from .types import Candidate, DetailMatch, DetailVarianceFilter, FrameResult, Roi, Template
+
+if TYPE_CHECKING:
+    from .settings import MatcherSettings
 
 __all__ = [
     "Candidate",
@@ -37,28 +40,38 @@ class CoarseToFineMatcher:
     def __init__(
         self,
         template_bgr: np.ndarray,
-        *,
-        device: str = "cuda",
-        frame_downscale: float = 0.25,
-        coarse_template_scales: Sequence[float] = (0.2,),
-        detail_template_scales: Sequence[float] = (1.0, 0.8, 0.6, 0.4),
-        coarse_stride: int = 2,
-        detail_stride_base: int = 4,
-        detail_stride_min: int = 2,
-        coarse_top_k: int = 3,
-        coarse_candidates_per_template: int = 20,
-        nms_distance_original_px: int = 120,
-        roi_margin_px: int = 32,
-        final_max_error: float = 30.0,
-        brightness_weights: Sequence[float] = (0.299, 0.587, 0.114),
-        channel_weights: Sequence[float] = (0.5, 0.5, 1.0),
-        variance_channel_weights: Sequence[float] = (1.0, 1.0, 1.0),
-        variance_log_distance_max: float = 3.0,
-        variance_epsilon: float = 1.0,
-        min_chroma_variance: float = 0.0,
-        min_brightness_variance: float = 0.0,
-        min_weight: float = 0.05,
+        settings: MatcherSettings | None = None,
+        **legacy_settings: object,
     ) -> None:
+        """参照画像と型付き設定から照合器を作る。"""
+        if settings is None:
+            # 既存の直接引数呼出しを、テストと過去の利用コードのために維持する。
+            # run.py は必ず MatcherSettings を渡す。
+            from .settings import MatcherSettings
+
+            settings = MatcherSettings(legacy_settings)
+        elif legacy_settings:
+            raise TypeError("settings と個別の設定値を同時に指定することはできません")
+        device = settings.device
+        frame_downscale = settings.frame_downscale
+        coarse_template_scales = settings.coarse_template_scales
+        detail_template_scales = settings.detail_template_scales
+        coarse_stride = settings.coarse_stride
+        detail_stride_base = settings.detail_stride_base
+        detail_stride_min = settings.detail_stride_min
+        coarse_top_k = settings.coarse_top_k
+        coarse_candidates_per_template = settings.coarse_candidates_per_template
+        nms_distance_original_px = settings.nms_distance_original_px
+        roi_margin_px = settings.roi_margin_px
+        final_max_error = settings.final_max_error
+        brightness_weights = settings.brightness_weights
+        channel_weights = settings.channel_weights
+        variance_channel_weights = settings.variance_channel_weights
+        variance_log_distance_max = settings.variance_log_distance_max
+        variance_epsilon = settings.variance_epsilon
+        min_chroma_variance = settings.min_chroma_variance
+        min_brightness_variance = settings.min_brightness_variance
+        min_weight = settings.min_weight
         if not 0.0 < frame_downscale < 1.0:
             raise ValueError("frame_downscale must be in the range (0, 1)")
         if coarse_stride <= 0 or detail_stride_base <= 0 or detail_stride_min <= 0:
@@ -99,7 +112,7 @@ class CoarseToFineMatcher:
             raise ValueError("at least one coarse and one detail template are required")
 
     def detail_stride_for_scale(self, scale: float) -> int:
-        """小テンプレートほど細かく探索するためのstrideを返す。"""
+        """詳細探索でのスケールごとのstrideを返す。"""
         return max(self.detail_stride_min, int(self.detail_stride_base * scale))
 
     def _create_templates(
@@ -133,6 +146,7 @@ class CoarseToFineMatcher:
     ) -> FrameResult:
         """1フレームを粗探索、ROI生成、詳細探索の順で照合する。"""
         with torch.inference_mode():
+            # 原画像と縮小画像の特徴量を計算してGPUに転送
             original_bgr_gpu = to_gpu_bgr(frame_bgr, self.device)
             original_features = bgr_to_features(original_bgr_gpu, self.brightness_weights)
             coarse_bgr_gpu = downscale_on_gpu(original_bgr_gpu, self.frame_downscale)
@@ -141,6 +155,7 @@ class CoarseToFineMatcher:
             if collect_coarse_image:
                 coarse_image_bgr = coarse_bgr_gpu.round().to(torch.uint8).detach().cpu().numpy()
 
+            # 粗探索
             coarse_candidates = find_coarse_candidates(
                 coarse_features,
                 coarse_templates=self.coarse_templates,
@@ -152,6 +167,7 @@ class CoarseToFineMatcher:
                 channel_weights=self.channel_weights,
                 device=self.device,
             )
+            # 粗探索での候補から詳細探索用ROIを生成
             rois = make_rois(
                 coarse_candidates,
                 frame_bgr.shape[:2],
@@ -160,6 +176,7 @@ class CoarseToFineMatcher:
                 coarse_stride=self.coarse_stride,
                 roi_margin_px=self.roi_margin_px,
             )
+            # 詳細探索
             detail_matches, detail_variance_filters = find_detail_matches(
                 original_features,
                 rois,
@@ -173,6 +190,7 @@ class CoarseToFineMatcher:
                 min_brightness_variance=self.min_brightness_variance,
                 collect_variance_filters=collect_detail_variance_filters,
             )
+
             best_match = min(detail_matches, key=lambda item: item.score) if detail_matches else None
             return FrameResult(
                 coarse_image_bgr=coarse_image_bgr,

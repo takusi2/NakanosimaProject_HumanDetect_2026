@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -10,13 +11,17 @@ import cv2
 import numpy as np
 import torch
 
-from experiments.coarse_to_fine_mannequin.src.pipeline import CoarseToFineMatcher
-from experiments.coarse_to_fine_mannequin.src.artifacts import (
+EXPERIMENT_DIRECTORY = Path(__file__).resolve().parents[1]
+if str(EXPERIMENT_DIRECTORY) not in sys.path:
+    sys.path.insert(0, str(EXPERIMENT_DIRECTORY))
+
+from src.pipeline import CoarseToFineMatcher
+from src.artifacts import (
     AnnotatedVideoWriter,
     ArtifactSaveOptions,
     ArtifactWriter,
 )
-from experiments.coarse_to_fine_mannequin.src.performance import (
+from src.performance import (
     FrameTiming,
     PerformanceOptions,
     PerformanceTracker,
@@ -240,7 +245,7 @@ class CoarseToFineMatcherTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            writer = ArtifactWriter(root, ArtifactSaveOptions(enabled=False))
+            writer = ArtifactWriter(root, ArtifactSaveOptions({"save": {"enabled": False}}))
             writer.save_detail_templates(matcher.detail_templates)
             writer.save_frame(1, frame, result)
             writer.close()
@@ -267,17 +272,22 @@ class CoarseToFineMatcherTests(unittest.TestCase):
         )
         result = matcher.process(frame)
         options = ArtifactSaveOptions(
-            detail_templates=False,
-            original_frame=False,
-            coarse_frame=False,
-            coarse_candidates=False,
-            coarse_rois=True,
-            variance_filters=False,
-            detail_matches=False,
-            best_match=True,
-            scores_csv=False,
-            scores_json=True,
-            annotated_video=False,
+            {
+                "save": {
+                    "detail_templates": False,
+                    "images": {
+                        "original_frame": False,
+                        "coarse_frame": False,
+                        "coarse_candidates": False,
+                        "coarse_rois": True,
+                        "variance_filters": False,
+                        "detail_matches": False,
+                        "best_match": True,
+                    },
+                    "scores": {"csv": False, "json": True},
+                    "annotated_video": False,
+                }
+            }
         )
 
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -296,13 +306,13 @@ class CoarseToFineMatcherTests(unittest.TestCase):
             self.assertFalse((run_directory / "06_scores" / "scores.csv").exists())
 
     def test_reads_legacy_and_new_save_configurations(self) -> None:
-        legacy = ArtifactSaveOptions.from_config(
+        legacy = ArtifactSaveOptions(
             {"save_every_n_frames": 3, "save_annotated_video": False}
         )
         self.assertEqual(legacy.every_n_frames, 3)
         self.assertFalse(legacy.annotated_video)
 
-        configured = ArtifactSaveOptions.from_config(
+        configured = ArtifactSaveOptions(
             {
                 "save": {
                     "enabled": True,
@@ -321,7 +331,15 @@ class CoarseToFineMatcherTests(unittest.TestCase):
 
     def test_performance_tracker_excludes_warmup_and_reports_fps(self) -> None:
         tracker = PerformanceTracker(
-            PerformanceOptions(enabled=True, warmup_frames=1, report_every_n_frames=2)
+            PerformanceOptions(
+                {
+                    "performance": {
+                        "enabled": True,
+                        "warmup_frames": 1,
+                        "report_every_n_frames": 2,
+                    }
+                }
+            )
         )
         for frame_number, total_ms in ((1, 100.0), (2, 20.0), (3, 40.0)):
             tracker.record(

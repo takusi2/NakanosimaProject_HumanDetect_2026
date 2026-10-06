@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+import sys
 from types import SimpleNamespace
 
-from experiments.coarse_to_fine_mannequin.run import apply_temporal_tracking
-from experiments.coarse_to_fine_mannequin.src.pipeline import FrameResult
-from experiments.coarse_to_fine_mannequin.src.tracking import TemporalMatchTracker
+EXPERIMENT_DIRECTORY = Path(__file__).resolve().parents[1]
+if str(EXPERIMENT_DIRECTORY) not in sys.path:
+    sys.path.insert(0, str(EXPERIMENT_DIRECTORY))
+
+from src.pipeline import FrameResult
+from src.tracking import TemporalMatchTracker, apply_temporal_tracking
 
 
 class TemporalMatchTrackerTests(unittest.TestCase):
