@@ -1,0 +1,320 @@
+{
+  "frame": 10,
+  "detected": true,
+  "coarse_candidates": [
+    {
+      "rank": 1,
+      "scale": 0.3,
+      "x": 38,
+      "y": 0,
+      "score": 19.28529930114746
+    },
+    {
+      "rank": 2,
+      "scale": 0.3,
+      "x": 73,
+      "y": 4,
+      "score": 19.457704544067383
+    }
+  ],
+  "rois": [
+    {
+      "index": 1,
+      "x": 63,
+      "y": 0,
+      "width": 40,
+      "height": 103
+    },
+    {
+      "index": 2,
+      "x": 120,
+      "y": 0,
+      "width": 40,
+      "height": 103
+    }
+  ],
+  "detail_matches": [
+    {
+      "roi": 1,
+      "scale": 1.0,
+      "x": 81,
+      "y": 16,
+      "score": 30.30425453186035,
+      "variance_distance": 1.4571857452392578,
+      "stride": 4,
+      "selected": false
+    },
+    {
+      "roi": 1,
+      "scale": 0.9,
+      "x": 78,
+      "y": 0,
+      "score": 28.433053970336914,
+      "variance_distance": 0.9925856590270996,
+      "stride": 3,
+      "selected": false
+    },
+    {
+      "roi": 1,
+      "scale": 0.8,
+      "x": 72,
+      "y": 3,
+      "score": 27.046894073486328,
+      "variance_distance": 1.005934715270996,
+      "stride": 3,
+      "selected": false
+    },
+    {
+      "roi": 1,
+      "scale": 0.7,
+      "x": 73,
+      "y": 8,
+      "score": 26.241607666015625,
+      "variance_distance": 1.0017385482788086,
+      "stride": 2,
+      "selected": false
+    },
+    {
+      "roi": 1,
+      "scale": 0.6,
+      "x": 73,
+      "y": 14,
+      "score": 25.541032791137695,
+      "variance_distance": 1.2046024799346924,
+      "stride": 2,
+      "selected": false
+    },
+    {
+      "roi": 2,
+      "scale": 1.0,
+      "x": 120,
+      "y": 0,
+      "score": 25.93031120300293,
+      "variance_distance": 1.7011744976043701,
+      "stride": 4,
+      "selected": false
+    },
+    {
+      "roi": 2,
+      "scale": 0.9,
+      "x": 132,
+      "y": 6,
+      "score": 25.626667022705078,
+      "variance_distance": 1.5515131950378418,
+      "stride": 3,
+      "selected": false
+    },
+    {
+      "roi": 2,
+      "scale": 0.8,
+      "x": 132,
+      "y": 12,
+      "score": 25.248435974121094,
+      "variance_distance": 1.6238369941711426,
+      "stride": 3,
+      "selected": false
+    },
+    {
+      "roi": 2,
+      "scale": 0.7,
+      "x": 128,
+      "y": 12,
+      "score": 24.17202377319336,
+      "variance_distance": 2.576279401779175,
+      "stride": 2,
+      "selected": false
+    },
+    {
+      "roi": 2,
+      "scale": 0.6,
+      "x": 132,
+      "y": 18,
+      "score": 23.681079864501953,
+      "variance_distance": 2.4686062335968018,
+      "stride": 2,
+      "selected": true
+    }
+  ],
+  "variance_filters": [
+    {
+      "roi": 1,
+      "scale": 1.0,
+      "candidates_total": 36,
+      "candidates_passed": 21,
+      "candidates_rejected": 15,
+      "flatness_rejected": 15,
+      "relative_variance_rejected": 0,
+      "candidate_variance_mean": {
+        "rg": 25.118942260742188,
+        "by": 33.674949645996094,
+        "brightness": 706.286376953125
+      },
+      "min_chroma_variance": 50.0,
+      "min_brightness_variance": 1000.0,
+      "stride": 4
+    },
+    {
+      "roi": 1,
+      "scale": 0.9,
+      "candidates_total": 80,
+      "candidates_passed": 49,
+      "candidates_rejected": 31,
+      "flatness_rejected": 31,
+      "relative_variance_rejected": 0,
+      "candidate_variance_mean": {
+        "rg": 25.803125381469727,
+        "by": 31.766826629638672,
+        "brightness": 739.59326171875
+      },
+      "min_chroma_variance": 50.0,
+      "min_brightness_variance": 1000.0,
+      "stride": 3
+    },
+    {
+      "roi": 1,
+      "scale": 0.8,
+      "candidates_total": 117,
+      "candidates_passed": 75,
+      "candidates_rejected": 42,
+      "flatness_rejected": 42,
+      "relative_variance_rejected": 0,
+      "candidate_variance_mean": {
+        "rg": 27.10456085205078,
+        "by": 33.42988967895508,
+        "brightness": 793.8265991210938
+      },
+      "min_chroma_variance": 50.0,
+      "min_brightness_variance": 1000.0,
+      "stride": 3
+    },
+    {
+      "roi": 1,
+      "scale": 0.7,
+      "candidates_total": 322,
+      "candidates_passed": 190,
+      "candidates_rejected": 132,
+      "flatness_rejected": 132,
+      "relative_variance_rejected": 0,
+      "candidate_variance_mean": {
+        "rg": 27.223466873168945,
+        "by": 31.308561325073242,
+        "brightness": 782.480712890625
+      },
+      "min_chroma_variance": 50.0,
+      "min_brightness_variance": 1000.0,
+      "stride": 2
+    },
+    {
+      "roi": 1,
+      "scale": 0.6,
+      "candidates_total": 405,
+      "candidates_passed": 219,
+      "candidates_rejected": 186,
+      "flatness_rejected": 186,
+      "relative_variance_rejected": 0,
+      "candidate_variance_mean": {
+        "rg": 26.53145408630371,
+        "by": 30.00367546081543,
+        "brightness": 763.4013671875
+      },
+      "min_chroma_variance": 50.0,
+      "min_brightness_variance": 1000.0,
+      "stride": 2
+    },
+    {
+      "roi": 2,
+      "scale": 1.0,
+      "candidates_total": 36,
+      "candidates_passed": 32,
+      "candidates_rejected": 4,
+      "flatness_rejected": 4,
+      "relative_variance_rejected": 0,
+      "candidate_variance_mean": {
+        "rg": 39.09962463378906,
+        "by": 36.518829345703125,
+        "brightness": 699.303955078125
+      },
+      "min_chroma_variance": 50.0,
+      "min_brightness_variance": 1000.0,
+      "stride": 4
+    },
+    {
+      "roi": 2,
+      "scale": 0.9,
+      "candidates_total": 80,
+      "candidates_passed": 59,
+      "candidates_rejected": 21,
+      "flatness_rejected": 21,
+      "relative_variance_rejected": 0,
+      "candidate_variance_mean": {
+        "rg": 38.105987548828125,
+        "by": 32.394771575927734,
+        "brightness": 677.155517578125
+      },
+      "min_chroma_variance": 50.0,
+      "min_brightness_variance": 1000.0,
+      "stride": 3
+    },
+    {
+      "roi": 2,
+      "scale": 0.8,
+      "candidates_total": 117,
+      "candidates_passed": 69,
+      "candidates_rejected": 48,
+      "flatness_rejected": 48,
+      "relative_variance_rejected": 0,
+      "candidate_variance_mean": {
+        "rg": 35.823631286621094,
+        "by": 30.055490493774414,
+        "brightness": 676.3460083007812
+      },
+      "min_chroma_variance": 50.0,
+      "min_brightness_variance": 1000.0,
+      "stride": 3
+    },
+    {
+      "roi": 2,
+      "scale": 0.7,
+      "candidates_total": 322,
+      "candidates_passed": 159,
+      "candidates_rejected": 163,
+      "flatness_rejected": 163,
+      "relative_variance_rejected": 0,
+      "candidate_variance_mean": {
+        "rg": 33.91171646118164,
+        "by": 26.93039321899414,
+        "brightness": 621.1961669921875
+      },
+      "min_chroma_variance": 50.0,
+      "min_brightness_variance": 1000.0,
+      "stride": 2
+    },
+    {
+      "roi": 2,
+      "scale": 0.6,
+      "candidates_total": 405,
+      "candidates_passed": 178,
+      "candidates_rejected": 227,
+      "flatness_rejected": 227,
+      "relative_variance_rejected": 0,
+      "candidate_variance_mean": {
+        "rg": 32.6303596496582,
+        "by": 25.626285552978516,
+        "brightness": 610.8466186523438
+      },
+      "min_chroma_variance": 50.0,
+      "min_brightness_variance": 1000.0,
+      "stride": 2
+    }
+  ],
+  "best_match": {
+    "roi": 2,
+    "scale": 0.6,
+    "x": 132,
+    "y": 18,
+    "score": 23.681079864501953,
+    "variance_distance": 2.4686062335968018,
+    "stride": 2,
+    "selected": true
+  }
+}

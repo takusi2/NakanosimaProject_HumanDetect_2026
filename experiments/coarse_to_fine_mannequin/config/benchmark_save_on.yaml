@@ -1,0 +1,82 @@
+# 保存ON/OFFによる速度比較用。benchmark_save_off.yaml と検出条件を同一に保つ。
+
+# =============================================================================
+# 1. 入力設定
+# =============================================================================
+template_path: "../../../humanA/20260902_1552_2fparking_nowide_gC01_gS06_iir040_nrA_cloudy-none_d4p5m_camstatic_manA-framein-right_t01_motor - frame at 0m5s._3jpg.jpg"
+input_source: video
+video_path: "../../../output/tests/20260902_1552_2fparking_nowide_gC01_gS06_iir040_nrA_cloudy-none_d4p5m_camstatic_manA-framein-left_t01.mp4"
+camera_index: 0
+input_width: 160
+input_height: 120
+
+# =============================================================================
+# 2. 表示設定
+# =============================================================================
+show_window: false
+window_name: Save-on benchmark
+display_width: 640
+display_height: 480
+
+# =============================================================================
+# 3. 出力・保存・性能計測設定
+# =============================================================================
+results_root: "../results/benchmark_save_on"
+save:
+  enabled: true
+  every_n_frames: 1
+  detail_templates: true
+  images:
+    original_frame: true
+    coarse_frame: true
+    coarse_candidates: true
+    coarse_rois: true
+    variance_filters: true
+    detail_matches: true
+    best_match: true
+  scores:
+    csv: true
+    json: true
+  annotated_video: true
+  performance_json: true
+performance:
+  enabled: true
+  warmup_frames: 5
+  report_every_n_frames: 0
+processing_frame_limit: 30
+
+# =============================================================================
+# 4. 検出パラメータ: 粗探索・詳細探索ROI
+# =============================================================================
+device: cuda
+frame_downscale: 0.5
+coarse_template_scales: [0.3, 0.4, 0.5]
+detail_template_scales: [1.0, 0.9, 0.8, 0.7, 0.6]
+coarse_stride: 2
+detail_stride_base: 4
+detail_stride_min: 2
+coarse_top_k: 3
+coarse_candidates_per_template: 20
+nms_distance_original_px: 40
+roi_margin_px: 5
+final_max_error: 25.0
+
+# =============================================================================
+# 5. 検出パラメータ: 色特徴量・分散フィルタ
+# =============================================================================
+brightness_weights: {r: 0.299, g: 0.587, b: 0.114}
+channel_weights: {rg: 0.5, by: 0.5, y: 1.0}
+variance_channel_weights: {rg: 1.0, by: 1.0, y: 1.0}
+variance_log_distance_max: 5.0
+variance_epsilon: 1.0
+min_chroma_variance: 50.0
+min_brightness_variance: 1000.0
+min_weight: 0.05
+
+# =============================================================================
+# 6. 検出パラメータ: 時系列追跡
+# =============================================================================
+target_confirm_window_frames: 10
+target_confirm_frames: 5
+match_iou_thresh: 0.8
+max_track_age: 30
