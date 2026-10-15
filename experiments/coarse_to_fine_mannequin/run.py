@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from time import perf_counter
 
@@ -30,13 +31,31 @@ from src.tracking import (
 from src.settings import RunSettings
 
 
-# 使用する設定ファイルはここだけで指定する。
-config_path_name = "run_20260902_1552_right_motor.yaml"
-CONFIG_PATH = Path(__file__).parent / "config" / config_path_name
+# 引数を指定しない場合は、assets/ 内の参照画像・動画だけで実行できる
+# 単体引継ぎ用設定を使う。個別の実験設定は --config で指定する。
+DEFAULT_CONFIG_PATH = Path(__file__).parent / "config" / "standalone_example.yaml"
 
 
-def main() -> None:
-    settings = RunSettings(CONFIG_PATH)
+def read_config_path_from_command_line() -> Path:
+    """実行時に使うYAML設定ファイルのパスを受け取る。"""
+    parser = argparse.ArgumentParser(
+        description="粗探索・詳細探索によるマネキン検出を実行します。"
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG_PATH,
+        help=(
+            "使用するYAML設定ファイル。省略時は "
+            "config/standalone_example.yaml を使用します。"
+        ),
+    )
+    return parser.parse_args().config.resolve()
+
+
+def main(config_path: Path) -> None:
+    """指定された設定ファイルで、動画・カメラ・UDP入力を処理する。"""
+    settings = RunSettings(config_path)
     template = cv2.imdecode(
         np.fromfile(str(settings.input.template_path), dtype=np.uint8), cv2.IMREAD_COLOR
     )
@@ -168,4 +187,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(read_config_path_from_command_line())

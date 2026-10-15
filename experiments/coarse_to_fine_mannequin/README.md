@@ -49,6 +49,9 @@
 & .\env\Scripts\python.exe .\experiments\coarse_to_fine_mannequin\run.py --config .\experiments\coarse_to_fine_mannequin\config\default.yaml
 ```
 
+`--config` を省略した場合は、単体引継ぎ用の
+[`config/standalone_example.yaml`](config/standalone_example.yaml) を使う。
+
 ### 実験フォルダ単体で渡す場合
 
 このフォルダは、`run.py`、`src/`、`sensor_io/` だけでプログラム本体が完結する。
@@ -78,6 +81,17 @@ coarse_to_fine_mannequin/
 Set-Location .\experiments\coarse_to_fine_mannequin
 & ..\..\env\Scripts\python.exe .\run.py --config .\config\standalone_example.yaml
 ```
+
+この場合、`--config` は省略してもよい。つまり、他PCでは `assets/template.jpg`
+に参照画像、`assets/input.mp4` に動画を置けば、次だけで実行できる。
+
+```powershell
+Set-Location .\experiments\coarse_to_fine_mannequin
+& ..\..\env\Scripts\python.exe .\run.py
+```
+
+GPUがないPCでは、`config/standalone_example.yaml` の `device: cuda` を
+`device: cpu` に変更する。CPUでは処理速度が大幅に低下する点に注意する。
 
 ## 保存される成果物
 
